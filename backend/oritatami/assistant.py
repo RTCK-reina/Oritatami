@@ -4,6 +4,11 @@ The model's output is never applied blindly. Every proposal is checked against t
 actual workbench (residue identities, chain ids), external databases (UniProt,
 PubChem, CCD) and RDKit, and scored with ESM-2 where that is meaningful. Proposals keep
 their issues list so the UI can show what was wrong instead of silently fixing it.
+
+One exception, because it was the common case rather than a rare one: a mutation whose
+wild-type residue is right and whose index is wrong is moved onto the position that residue
+actually occupies, and the move is reported on the proposal. Rejecting it outright threw away
+work the model had mostly right, and left the person to redo the arithmetic by hand.
 """
 
 from __future__ import annotations
@@ -20,7 +25,7 @@ from .config import get_settings
 from .db import Database
 from .engines import esm
 from .llm import SafeguardError as SafeguardError  # noqa: F401  (re-export so callers can catch it)
-from .seq import SequenceError, apply_mutations, clean_sequence, parse_mutations
+from .seq import SequenceError, clean_sequence, parse_mutations, repair_mutations
 
 log = logging.getLogger("oritatami.assistant")
 
@@ -656,7 +661,7 @@ def verify_proposal(p: dict[str, Any], workbench: dict[str, Any], default_chain:
     except (SequenceError, chem.ChemError, sources.SourceError, ValueError) as exc:
         out["status"] = "invalid"
         out["issues"].append(str(exc))
-    if out["status"] == "ok" and out["issues"]:
+    if out["status"] == "ok" and (out["issues"] or out.get("repaired")):
         out["status"] = "warning"
     return out
 
@@ -667,27 +672,25 @@ def _verify_mutations(p: dict[str, Any], out: dict[str, Any], workbench: dict[st
     if comp is None or comp.get("type") != "protein":
         raise ValueError(f"チェーン {chain} は作業台のタンパク質にありません")
     seq = comp["sequence"]
-    valid, rejected = [], []
+    # The model names the residue it means and then gets the index wrong — a leading
+    # methionine, UniProt numbering against a construct. Dropping the mutation throws away
+    # the part it had right, so the position is moved to where that residue actually is and
+    # the move is written on the card. What cannot be placed is still dropped.
+    parsed, rejected = [], []
     for token in p.get("mutations") or []:
         token = str(token).strip()
         if ":" in token:
             token = token.split(":", 1)[1]
         try:
-            muts = parse_mutations(token)
-            apply_mutations(seq, muts)
-            valid.extend(muts)
+            parsed.extend(parse_mutations(token))
         except SequenceError as exc:
-            hint = ""
-            m = re.match(r"^([A-Za-z])(\d+)([A-Za-z])$", token)
-            if m:
-                wt, pos = m.group(1).upper(), int(m.group(2))
-                near = [q for q in range(pos - 3, pos + 4) if 1 <= q <= len(seq) and seq[q - 1] == wt]
-                if near:
-                    hint = f" (近くの {wt} は位置 {', '.join(map(str, near))})"
-            rejected.append(f"{token}: {exc}{hint}")
-    positions = [m.position for m in valid]
-    if len(set(positions)) != len(positions):
-        raise ValueError("同じ位置への変異が重複しています")
+            rejected.append(f"{token}: {exc}")
+    valid, repairs, dropped = repair_mutations(seq, parsed)
+    rejected.extend(dropped)
+    # Repairs are kept apart from problems: the proposal is usable, and the card says what
+    # was moved. They still make the status "warning" — the applied mutation is not the one
+    # the model wrote, and that has to be visible without opening anything.
+    out["repaired"] = repairs
     out["issues"].extend(rejected)
     if not valid:
         raise ValueError("有効な変異がありません")

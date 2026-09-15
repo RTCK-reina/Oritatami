@@ -63,14 +63,22 @@ def test_job_lifecycle_with_fake_handler(client):
     assert client.delete(f"/api/jobs/{job_id}").status_code == 200
 
 
-def test_assistant_verification_rejects_wrong_wild_type():
+def test_assistant_verification_moves_a_mutation_onto_the_residue_it_names():
+    """A48R on ubiquitin: position 48 is K, and the nearest A is 46.
+
+    This used to be rejected outright. The model names the residue it means and misses the
+    index often enough that throwing the proposal away was the common outcome, so it is moved
+    instead — and the move is on the card, because A46R is not the same claim as A48R.
+    """
     from oritatami import assistant
 
     wb = {"components": [{"type": "protein", "chains": ["A"], "sequence": UBQ}]}
     p = assistant.verify_proposal({"type": "mutation_set", "title": "t", "rationale": "r", "chain": "A",
                                    "mutations": ["A48R"]}, wb, "A")
-    assert p["status"] == "invalid"
-    assert any("近くの" in i or "K" in i for i in p["issues"])
+    assert p["status"] == "warning"
+    assert p["mutations"] == ["A46R"]
+    assert any("A48R → A46R" in note for note in p["repaired"])
+    assert "位置 48 は K" in p["repaired"][0]
 
 
 def test_spa_fallback_without_build(client, monkeypatch):

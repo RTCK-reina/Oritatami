@@ -318,6 +318,8 @@ export interface Proposal {
     chain?: string;
     mutations?: string[];
     rejected?: string[];
+    /** mutations whose position was moved onto the residue the model actually named */
+    repaired?: string[];
     esm?: { total_llr: number; per_mutation: { mutation: string; llr: number }[] } | null;
     chem?: ChemInfo;
     resolved?: Record<string, string | number | null | undefined>;

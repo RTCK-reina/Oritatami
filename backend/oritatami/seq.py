@@ -133,6 +133,106 @@ def apply_mutations(seq: str, mutations: list[Mutation]) -> str:
     return "".join(chars)
 
 
+# ---------------------------------------------------------------- repairing a proposal
+# How far from the position it named a mutation may be moved. A language model that has the
+# right residue in mind and the wrong index is usually off by a handful — a leading methionine,
+# a signal peptide that UniProt numbers and the construct does not. Past this the "correction"
+# would be a different mutation wearing the same name.
+REPAIR_WINDOW = 12
+# An offset is only believed when this many of the proposal's own mutations agree on it.
+OFFSET_QUORUM = 2
+
+
+def wt_matches(seq: str, mut: Mutation) -> bool:
+    return 1 <= mut.position <= len(seq) and seq[mut.position - 1] == mut.wt
+
+
+def infer_offset(seq: str, mutations: list[Mutation], *, window: int = REPAIR_WINDOW) -> int | None:
+    """A single shift that explains several mismatched mutations at once.
+
+    When a model numbers from the UniProt entry and the workbench holds a construct, every
+    position in the proposal is wrong by the same amount. That is worth finding before moving
+    mutations one at a time, because the shared offset is evidence and a nearest-match is a
+    guess.
+    """
+    wrong = [m for m in mutations if not wt_matches(seq, m)]
+    if len(wrong) < OFFSET_QUORUM:
+        return None
+    best: tuple[int, int] | None = None                    # (matches, -|k|) for the best k
+    for k in range(-window, window + 1):
+        if k == 0:
+            continue
+        hits = sum(1 for m in wrong
+                   if 1 <= m.position + k <= len(seq) and seq[m.position + k - 1] == m.wt)
+        if hits >= OFFSET_QUORUM and (best is None or (hits, -abs(k)) > best):
+            best = (hits, -abs(k))
+            best_k = k
+    return best_k if best else None
+
+
+def repair_mutation(seq: str, mut: Mutation, *, offset: int | None = None,
+                    window: int = REPAIR_WINDOW) -> tuple[Mutation | None, str | None]:
+    """Put a mutation on the position its wild-type residue actually occupies.
+
+    Returns the mutation to use and a note for the person, or ``(None, reason)`` when there is
+    nothing near enough to be the same mutation. The note is never silent: a proposal that was
+    moved says so on its card, because "S257P" and "S252P" are different claims about the
+    molecule even when one of them is what the model meant.
+    """
+    if wt_matches(seq, mut):
+        return mut, None
+    if mut.position < 1:
+        return None, f"位置 {mut.position} は配列の外です"
+    actual = seq[mut.position - 1] if mut.position <= len(seq) else None
+    if offset is not None:
+        shifted = mut.position + offset
+        if 1 <= shifted <= len(seq) and seq[shifted - 1] == mut.wt:
+            moved = Mutation(wt=mut.wt, position=shifted, mt=mut.mt, chain=mut.chain)
+            return moved, (f"{mut.code} → {moved.code} (提案全体が {offset:+d} ずれていました)")
+    candidates = [q for q in range(max(1, mut.position - window), min(len(seq), mut.position + window) + 1)
+                  if seq[q - 1] == mut.wt]
+    if not candidates:
+        where = f"位置 {mut.position} の残基は {actual}" if actual else f"位置 {mut.position} は配列長 {len(seq)} の外"
+        return None, f"{where} で、前後 {window} 残基に {mut.wt} がありません"
+    candidates.sort(key=lambda q: (abs(q - mut.position), q))
+    moved = Mutation(wt=mut.wt, position=candidates[0], mt=mut.mt, chain=mut.chain)
+    others = [str(q) for q in candidates[1:3]]
+    note = (f"{mut.code} → {moved.code} (位置 {mut.position} は {actual}、"
+            f"最も近い {mut.wt} は {candidates[0]}"
+            + (f"。他に {', '.join(others)}" if others else "") + ")")
+    return moved, note
+
+
+def repair_mutations(seq: str, mutations: list[Mutation]) -> tuple[list[Mutation], list[str], list[str]]:
+    """Repair a whole proposal at once. Returns (usable mutations, notes, dropped)."""
+    offset = infer_offset(seq, mutations)
+    kept: list[Mutation] = []
+    notes: list[str] = []
+    dropped: list[str] = []
+    for mut in mutations:
+        moved, note = repair_mutation(seq, mut, offset=offset)
+        if moved is None:
+            dropped.append(f"{mut.code}: {note}")
+            continue
+        if note:
+            notes.append(note)
+        kept.append(moved)
+    # Moving two mutations onto one position would silently drop one of them.
+    seen: dict[int, Mutation] = {}
+    final: list[Mutation] = []
+    for mut in kept:
+        clash = seen.get(mut.position)
+        if clash is not None:
+            if clash.mt != mut.mt:
+                dropped.append(f"{mut.code}: 直した先の位置 {mut.position} が {clash.code} と重なります")
+            else:
+                notes.append(f"{mut.code} は {clash.code} と同じ変異になったのでまとめました")
+            continue
+        seen[mut.position] = mut
+        final.append(mut)
+    return final, notes, dropped
+
+
 def diff_substitutions(wt: str, mt: str) -> list[str] | None:
     """Substitution list if both sequences have the same length, else None."""
     if len(wt) != len(mt):

@@ -352,6 +352,11 @@ function ProposalCard({ p }: { p: Proposal }) {
                     {showSeq && <div className="mono small seq-wrap">{p.sequence}</div>}
                 </div>
             )}
+            {p.repaired && p.repaired.length > 0 && (
+                <ul className="issues repaired" title="残基名は合っていて位置だけ違ったので、その残基がある位置に直して通しました">
+                    {p.repaired.map((x, i) => <li key={i}>位置を直しました: {x}</li>)}
+                </ul>
+            )}
             {p.issues.length > 0 && <ul className="issues">{p.issues.map((x, i) => <li key={i}>{x}</li>)}</ul>}
             {ok && (
                 <div className="row wrap">
