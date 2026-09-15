@@ -106,6 +106,8 @@ cd Oritatami
 
 ## 開発
 
+設計と API の契約は [docs/SPEC.md](docs/SPEC.md) にまとめてあります。
+
 ```
 backend/oritatami/
   app.py          FastAPI (REST API と画面の配信)
