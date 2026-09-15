@@ -130,6 +130,8 @@ export interface PredictResult {
     affinity: Affinity | null;
     pae: { size: number; factor: number; matrix: number[][]; segments: PaeSegment[] | null } | null;
     interfaces: { cutoff: number; interfaces: Interface[] } | { error: string } | null;
+    /** whether the coordinates are physically possible; null on results predicted before 0.2.1 */
+    geometry?: Geometry | { error: string } | null;
     elapsed_sec: number;
     /** seconds spent per Boltz phase (0.2+) */
     timings?: Record<string, number>;
@@ -137,6 +139,23 @@ export interface PredictResult {
     accelerator: string;
     msa: { server: boolean; reused_from: string | null; single_sequence_chains: string[] };
     normalized_spec: SpecOut;
+}
+
+export interface Geometry {
+    model_index: number;
+    atoms: number;
+    /** atoms whose coordinates or pLDDT came back NaN/inf */
+    nonfinite_atoms: number;
+    nonfinite_examples: string[];
+    other_models_nonfinite: { model_index: number; nonfinite_atoms: number }[];
+    /** heavy-atom pairs overlapping beyond the van der Waals tolerance; null when NaN stopped the check */
+    clashes: number | null;
+    severe_clashes: number | null;
+    /** clashes per 1000 atoms */
+    clashscore: number | null;
+    worst_clashes: { a: string; b: string; dist: number; overlap: number }[];
+    chain_breaks: { chain: string; after: string; before: string; dist: number; limit: number }[];
+    vdw_tolerance: number;
 }
 
 export interface ScanResult {

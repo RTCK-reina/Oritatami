@@ -788,10 +788,29 @@ def collect_results(spec: dict[str, Any], job_dir: Path, pred_dir: Path) -> dict
             interfaces = structure.contacts(job_dir / models[0]["file"])
         except Exception as exc:  # contacts are an extra; report instead of failing the job
             interfaces = {"error": f"接触解析に失敗: {exc}"}
+    # Whether what came out is physically possible. Confidence scores cannot answer this:
+    # a NaN residue still carries a pLDDT, and two atoms inside each other can both be
+    # "confident". Measured once here so every later reader sees the same numbers.
+    geometry = None
+    if models:
+        try:
+            geometry = structure.geometry_check(job_dir / models[0]["file"])
+            geometry["model_index"] = models[0]["index"]
+            # NaN is per-model: one sample can blow up while the rest are fine, and the
+            # ranked-first model is not always the one the person opens.
+            others = []
+            for m in models[1:]:
+                bad, _ = structure.nonfinite_atoms(job_dir / m["file"])
+                if bad:
+                    others.append({"model_index": m["index"], "nonfinite_atoms": bad})
+            geometry["other_models_nonfinite"] = others
+        except Exception as exc:  # a geometry check is an extra; never fail the job for it
+            geometry = {"error": f"形状チェックに失敗: {exc}"}
     return {
         "models": models,
         "chains": chain_rows,
         "affinity": affinity,
         "pae": pae,
         "interfaces": interfaces,
+        "geometry": geometry,
     }

@@ -9,6 +9,7 @@ import json
 import logging
 import logging.handlers
 import re
+import sys
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -648,6 +649,9 @@ def job_function_risk(job_id: str) -> dict[str, Any]:
     job = state.db.get_job(job_id)
     if job is None:
         raise KeyError(job_id)
+    # Results predicted before the geometry check existed have no geometry block; measure it
+    # now so old work gets the same warnings as new work.
+    job = function_risk.ensure_geometry(state.db, job)
     return function_risk.assess(state.db, job)
 
 
@@ -1045,6 +1049,43 @@ def gpu_state(fresh: bool = False) -> dict[str, Any]:
 
 class GpuLimitBody(BaseModel):
     wired_limit_mb: int = Field(..., ge=0, le=1_000_000)
+
+
+@app.get("/api/system/memory")
+def system_memory() -> dict[str, Any]:
+    """The app's own footprint across this session's jobs, and what torch is holding.
+
+    Boltz takes its memory with it when its subprocess exits; what can grow unnoticed over a
+    long batch is this process. Reported rather than acted on: the numbers say whether the
+    growth is real before anything is done about it.
+    """
+    trend = system.memory_trend()
+    torch_mod = sys.modules.get("torch")
+    mps: dict[str, Any] | None = None
+    if torch_mod is not None:
+        try:
+            if torch_mod.backends.mps.is_available():
+                mps = {
+                    "driver_allocated_gb": round(torch_mod.mps.driver_allocated_memory() / 1024**3, 2),
+                    "in_use_gb": round(torch_mod.mps.current_allocated_memory() / 1024**3, 2),
+                }
+        except (AttributeError, RuntimeError):
+            mps = None
+    return {**trend, "torch_mps": mps, "growth_warn_gb": system.FOOTPRINT_GROWTH_WARN_GB}
+
+
+@app.post("/api/system/memory/release")
+def system_memory_release() -> dict[str, Any]:
+    """Give back what is held but unused: torch's MPS pool, then the ESM-2 model if it is idle."""
+    from .engines import esm
+
+    freed = esm.release_cache()
+    unloaded = esm.unload_if_unused()
+    if unloaded:
+        freed += esm.release_cache()
+    llm.unload_model()
+    return {"freed_gb": round(freed, 2), "esm_unloaded": unloaded,
+            "footprint_gb": system.process_footprint_gb()}
 
 
 @app.get("/api/system/ssd")

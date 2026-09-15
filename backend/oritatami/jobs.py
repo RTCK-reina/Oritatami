@@ -382,6 +382,13 @@ class JobManager:
 
                     if esm.unload_if_unused():
                         ctx.log("[oritatami] ESM-2 をメモリから解放しました")
+                    # Even when the model has to stay (a scan is running, or it was never
+                    # loaded), torch's MPS pool can be holding blocks nobody is using. Metal
+                    # budgets its working set per process, so what this one keeps is taken
+                    # out of what Boltz can have.
+                    freed = esm.release_cache()
+                    if freed >= 0.05:
+                        ctx.log(f"[oritatami] Metal のキャッシュを {freed:.1f} GB 解放しました")
                 result = self.handlers[job["kind"]](ctx)
                 if ctx.cancelled():
                     raise JobCancelled()
@@ -408,6 +415,12 @@ class JobManager:
             finally:
                 if lane == "predict":
                     llm.set_heavy(False)
+                from .engines import esm as _esm
+
+                _esm.release_cache()          # give the blocks back between jobs, not at exit
+                from . import system as _system
+
+                _system.record_footprint()    # one syscall; this is how fragmentation is seen
                 ctx.close()
                 self._current[lane] = None
 

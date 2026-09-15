@@ -5,6 +5,7 @@ import type {
     CompareResult,
     Estimate,
     FullJob,
+    Geometry,
     GpuState,
     SsdInfo,
     Health,
@@ -265,6 +266,21 @@ export interface ProtectedSuggestion {
     notes: string[];
 }
 
+export interface MemoryTrend {
+    /** physical footprint of the app process right now, GB */
+    current_gb: number | null;
+    /** how many jobs have been sampled this session */
+    samples: number;
+    first_gb?: number;
+    last_gb?: number;
+    /** last minus first; positive means the app is keeping something between jobs */
+    growth_gb: number | null;
+    climbing: boolean;
+    growth_warn_gb: number;
+    series?: { job: number; gb: number }[];
+    torch_mps: { driver_allocated_gb: number; in_use_gb: number } | null;
+}
+
 export interface FunctionFinding {
     kind: string;
     severity: string;
@@ -280,6 +296,8 @@ export interface FunctionRisk {
     job_id: string;
     level: 'ok' | 'warn' | 'danger';
     findings: FunctionFinding[];
+    /** measured on first view for results predicted before the check existed */
+    geometry: Geometry | { error: string } | null;
 }
 
 export interface AutopilotStatus {
@@ -403,6 +421,9 @@ export const api = {
     setGpuLimit: (wiredLimitMb: number) =>
         post<GpuState>('/api/system/gpu', { wired_limit_mb: wiredLimitMb }),
     ssd: (fresh = false) => get<SsdInfo>(`/api/system/ssd${fresh ? '?fresh=true' : ''}`),
+    memory: () => get<MemoryTrend>('/api/system/memory'),
+    releaseMemory: () => post<{ freed_gb: number; esm_unloaded: boolean; footprint_gb: number | null }>(
+        '/api/system/memory/release', {}),
     deleteJob: (id: string) => del<{ deleted: string }>(`/api/jobs/${q(id)}`),
     jobLog: (id: string) => get<string>(`/api/jobs/${q(id)}/log`),
     revealJob: (id: string) => post<{ opened: string }>(`/api/jobs/${q(id)}/reveal`),

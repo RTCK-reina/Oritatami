@@ -296,3 +296,157 @@ def to_pdb(path: Path | str) -> str:
         raise ValueError("原子数が PDB 形式の上限を超えています")
     st.shorten_ccd_codes()
     return st.make_pdb_string(gemmi.PdbWriteOptions(minimal=False))
+
+
+# ------------------------------------------------------------------ geometry sanity
+# A prediction can finish, write a file, and still be unusable: half-precision denoising on
+# MPS can turn coordinates into NaN, and with the physical-correction step off the raw
+# diffusion output keeps atom pairs sitting inside each other. Neither shows up in pLDDT —
+# a NaN residue still carries a confidence number, and two overlapping side chains can both
+# be "confident". The only way to know is to measure the geometry that came out.
+
+# What counts as a collision. Two atoms are clashing when they are closer than their van der
+# Waals radii allow, with the same 0.4 A tolerance MolProbity uses. Nitrogen, oxygen and
+# sulfur get a further 0.6 A because a hydrogen bond legitimately pulls a donor and an
+# acceptor inside their vdW contact — without that allowance every salt bridge in every
+# structure reads as an error (measured here: 141 of 973 finished models, almost all of them
+# arginine-aspartate pairs at 2.0-2.2 A, which is short but not broken).
+VDW_TOLERANCE = 0.4
+HBOND_ALLOWANCE = 0.6
+# How deep the interpenetration has to be before the two atoms are simply in the same place.
+SEVERE_OVERLAP = 0.8
+_VDW = {"C": 1.70, "N": 1.55, "O": 1.52, "S": 1.80, "P": 1.80, "SE": 1.90, "F": 1.47,
+        "CL": 1.75, "BR": 1.85, "I": 1.98}
+_VDW_DEFAULT = 1.70
+_POLAR = {"N", "O", "S", "F"}
+# Metals coordinate at 2.0-2.2 A by design, and a disulfide sits at 2.05 A. Neither is a
+# clash, and neither is described by van der Waals radii.
+_METALS = {"ZN", "FE", "MG", "MN", "CU", "CO", "NI", "CD", "HG", "NA", "K", "CA", "MO", "W",
+           "AG", "AU", "PT", "PD", "LI", "AL", "BA", "SR", "CS", "RB", "PB", "V", "CR"}
+# Search radius: the widest pair we can flag is carbon-carbon at 1.70 + 1.70 - 0.4 = 3.0 A.
+_CLASH_SEARCH = 3.1
+# Consecutive CA atoms sit 3.8 A apart (2.9 A across a cis peptide bond). Past this the
+# backbone has come apart.
+CA_BREAK = 5.0
+# Nucleic acids are not measured on the same scale: consecutive C1' atoms along one strand of
+# B-DNA sit about 5.4 A apart, so the protein threshold flags every duplex that comes out of
+# the app (it flagged two, both correctly built). 9 A is well past any stacked step and well
+# short of a strand that has actually come apart.
+NUCLEIC_BREAK = 9.0
+_MAX_REPORTED = 12
+
+
+def _allowed_distance(e1: str, e2: str) -> float | None:
+    """How close these two elements may legitimately come. None when the pair is a bond."""
+    if e1 in _METALS or e2 in _METALS:
+        return None
+    if e1 == "S" and e2 == "S":
+        return None                                   # disulfide
+    limit = _VDW.get(e1, _VDW_DEFAULT) + _VDW.get(e2, _VDW_DEFAULT) - VDW_TOLERANCE
+    if e1 in _POLAR and e2 in _POLAR:
+        limit -= HBOND_ALLOWANCE
+    return limit
+
+
+def _atom_label(cra: gemmi.CRA) -> str:
+    return f"{cra.chain.name}/{cra.residue.name}{cra.residue.seqid.num}/{cra.atom.name}"
+
+
+def _nonfinite(st: gemmi.Structure) -> tuple[int, list[str]]:
+    import math
+
+    bad, examples = 0, []
+    for chain in st[0]:
+        for res in chain:
+            for atom in res:
+                p = atom.pos
+                if not (math.isfinite(p.x) and math.isfinite(p.y) and math.isfinite(p.z)
+                        and math.isfinite(atom.b_iso)):
+                    bad += 1
+                    if len(examples) < _MAX_REPORTED:
+                        examples.append(f"{chain.name}/{res.name}{res.seqid.num}/{atom.name}")
+    return bad, examples
+
+
+def _clashes(st: gemmi.Structure) -> tuple[int, int, list[dict[str, Any]]]:
+    model = st[0]
+    ns = gemmi.NeighborSearch(model, st.cell, _CLASH_SEARCH + 1.0).populate()
+    cs = gemmi.ContactSearch(_CLASH_SEARCH)
+    # AdjacentResidues also covers the same residue, so bond lengths inside a residue and
+    # across the peptide bond are excluded without having to know the chemistry.
+    cs.ignore = gemmi.ContactSearch.Ignore.AdjacentResidues
+    total = severe = 0
+    worst: list[dict[str, Any]] = []
+    for r in cs.find_contacts(ns):
+        e1 = r.partner1.atom.element.name.upper()
+        e2 = r.partner2.atom.element.name.upper()
+        limit = _allowed_distance(e1, e2)
+        if limit is None or r.dist >= limit:
+            continue
+        overlap = limit - float(r.dist)
+        total += 1
+        if overlap >= SEVERE_OVERLAP:
+            severe += 1
+        worst.append({"a": _atom_label(r.partner1), "b": _atom_label(r.partner2),
+                      "dist": round(float(r.dist), 2), "overlap": round(overlap, 2)})
+    worst.sort(key=lambda x: -x["overlap"])
+    return total, severe, worst[:_MAX_REPORTED]
+
+
+def _chain_breaks(st: gemmi.Structure) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for chain in st[0]:
+        polymer = chain.get_polymer()
+        limit = CA_BREAK if _polymer_kind(polymer.check_polymer_type()) == "protein" else NUCLEIC_BREAK
+        prev = None
+        for res in polymer:
+            ca = res.find_atom("CA", "*") or res.find_atom("C1'", "*")
+            if ca is None:
+                prev = None
+                continue
+            if prev is not None:
+                d = prev[1].pos.dist(ca.pos)
+                if d > limit and len(out) < _MAX_REPORTED:
+                    out.append({"chain": chain.name,
+                                "after": _res_label(prev[0].name, prev[0].seqid.num),
+                                "before": _res_label(res.name, res.seqid.num),
+                                "dist": round(float(d), 2), "limit": limit})
+            prev = (res, ca)
+    return out
+
+
+def nonfinite_atoms(path: Path | str) -> tuple[int, list[str]]:
+    """Count atoms whose coordinates or confidence are NaN/inf. Cheap enough for every model."""
+    return _nonfinite(read_structure(path))
+
+
+def geometry_check(path: Path | str) -> dict[str, Any]:
+    """Is this model physically possible? Non-finite coordinates, clashes, broken backbone.
+
+    Cheap enough to run on every finished prediction: a 600-residue monomer takes well under
+    a second, because the neighbour search is the same one the contact map already builds.
+    """
+    st = read_structure(path)
+    st.remove_hydrogens()          # predicted hydrogens are placed, not observed
+    atoms = sum(1 for _ in st[0].all())
+    bad, examples = _nonfinite(st)
+    if bad:
+        # With NaN in the coordinates the neighbour search is meaningless (and gemmi may
+        # bin those atoms anywhere), so stop here and report the real problem.
+        return {"atoms": atoms, "nonfinite_atoms": bad, "nonfinite_examples": examples,
+                "clashes": None, "severe_clashes": None, "clashscore": None,
+                "worst_clashes": [], "chain_breaks": [], "vdw_tolerance": VDW_TOLERANCE}
+    total, severe, worst = _clashes(st)
+    return {
+        "atoms": atoms,
+        "nonfinite_atoms": 0,
+        "nonfinite_examples": [],
+        "clashes": total,
+        "severe_clashes": severe,
+        # Clashes per 1000 atoms, so models of different sizes can be compared. Measured over
+        # the 973 models this machine has produced: median 0, 75th percentile 1.7, 90th 4.9.
+        "clashscore": round(total * 1000.0 / atoms, 1) if atoms else 0.0,
+        "worst_clashes": worst,
+        "chain_breaks": _chain_breaks(st),
+        "vdw_tolerance": VDW_TOLERANCE,
+    }

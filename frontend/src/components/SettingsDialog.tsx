@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { api, errorMessage, formatBytes } from '../api';
-import type { PdbWatcherConfig, SearchHistory } from '../api';
+import type { MemoryTrend, PdbWatcherConfig, SearchHistory } from '../api';
 import { useStore } from '../store';
 import type { GpuState, LlmStatus, Settings, SsdInfo, StorageInfo } from '../types';
 import { uiEvents } from '../uiEvents';
@@ -515,6 +515,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                     {section === 'system' && (
                         <>
                             <GpuMemorySection />
+                            <AppMemorySection />
                             <SsdWearSection applecare={s.applecare} onApplecare={v => set('applecare', v)} />
                         </>
                     )}
@@ -706,6 +707,63 @@ function SsdWearSection({ applecare, onApplecare }: { applecare: boolean; onAppl
                     ? ' 加入していても摩耗が通る保証はないので、保証をアテにしない前提で判断してください。'
                     : ' 未加入と設定されています。摩耗で死んだ場合はロジックボード交換の実費になります。'}
             </p>
+        </section>
+    );
+}
+
+/**
+ * What this process itself is holding, job after job.
+ *
+ * Boltz runs in its own process and gives everything back when it exits, so a long batch can
+ * only leak here: gemmi structures, PAE matrices, the ESM-2 weights, and torch's MPS pool,
+ * which keeps freed blocks instead of returning them to Metal. The footprint is sampled at
+ * the end of every job — the number shown is measured, not estimated, and if it is flat there
+ * is nothing to fix.
+ */
+function AppMemorySection() {
+    const { toast } = useStore();
+    const [mem, setMem] = useState<MemoryTrend | null>(null);
+    const [busy, setBusy] = useState(false);
+    const load = () => { api.memory().then(setMem).catch(e => toast('error', errorMessage(e))); };
+    useEffect(load, [toast]);
+
+    const release = async () => {
+        setBusy(true);
+        try {
+            const r = await api.releaseMemory();
+            toast('success', r.freed_gb >= 0.05 || r.esm_unloaded
+                ? `${r.freed_gb.toFixed(1)} GB 解放しました${r.esm_unloaded ? ' (ESM-2 も降ろしました)' : ''}`
+                : '解放できる分はありませんでした');
+            load();
+        } catch (e) {
+            toast('error', errorMessage(e));
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    if (!mem) return <section><h3>アプリ自身のメモリ</h3><Spinner /></section>;
+    return (
+        <section>
+            <h3>アプリ自身のメモリ</h3>
+            <div className="kv">
+                <span>今の使用量 {mem.current_gb !== null ? `${mem.current_gb.toFixed(2)} GB` : '不明'}</span>
+                <span>{mem.samples >= 2 && mem.growth_gb !== null
+                    ? `ジョブ ${mem.samples} 件で ${mem.growth_gb >= 0 ? '+' : ''}${mem.growth_gb.toFixed(2)} GB`
+                    : `ジョブ ${mem.samples} 件ぶん計測`}</span>
+                {mem.torch_mps && <span>torch が Metal から確保 {mem.torch_mps.driver_allocated_gb.toFixed(2)} GB (使用中 {mem.torch_mps.in_use_gb.toFixed(2)} GB)</span>}
+            </div>
+            <p className={`small ${mem.climbing ? 'warn' : 'muted'}`}>
+                {mem.climbing
+                    ? `ジョブをまたいで ${mem.growth_gb?.toFixed(1)} GB 増えています。次の予測がその分だけ狭いメモリで走るので、解放するかアプリを再起動してください。`
+                    : 'ジョブ終了ごとに torch のキャッシュを返しています。この数字が増え続けていなければ、連続実行でメモリが痩せていくことはありません。'}
+            </p>
+            <div className="row wrap">
+                <Button size="sm" disabled={busy} onClick={() => void release()}>
+                    {busy ? <Spinner size={11} /> : '今すぐ解放する'}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={load}>測り直す</Button>
+            </div>
         </section>
     );
 }

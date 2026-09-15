@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 import random
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -99,6 +100,36 @@ def unload_if_idle(idle_sec: float = 600) -> None:
             _M.unload()
         finally:
             _M.lock.release()
+
+
+def release_cache() -> float:
+    """Hand Metal back the blocks torch is holding but not using. Returns the GB freed.
+
+    Torch's MPS allocator keeps freed blocks in its own pool rather than returning them, so a
+    scan that peaked at 3 GB goes on occupying that much as far as the rest of the machine is
+    concerned — including the Boltz subprocess that starts next, which gets its own Metal
+    working-set budget out of the same unified memory. Unloading the model is the heavy
+    version of this and is not always possible (a scan may be mid-flight); emptying the cache
+    is always safe and needs no lock.
+
+    Deliberately does nothing when torch has not been imported: importing it costs seconds
+    and hundreds of megabytes, which is the opposite of the point.
+    """
+    torch = sys.modules.get("torch")
+    if torch is None:
+        return 0.0
+    try:
+        if not torch.backends.mps.is_available():
+            return 0.0
+        # driver_allocated_memory is what Metal has handed this process, cache included;
+        # current_allocated_memory counts only live tensors and does not move when the cache
+        # is emptied, so it would always report 0 freed.
+        before = torch.mps.driver_allocated_memory()
+        torch.mps.empty_cache()
+        after = torch.mps.driver_allocated_memory()
+    except (AttributeError, RuntimeError):
+        return 0.0
+    return max(0.0, (before - after) / 1024**3)
 
 
 def unload_if_unused() -> bool:

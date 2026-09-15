@@ -24,7 +24,7 @@ import logging
 import re
 from typing import Any
 
-from . import sources
+from . import sources, structure
 from .config import get_settings
 from .db import Database
 
@@ -312,6 +312,120 @@ def _gain_from_disorder(parent: dict[str, Any], child: dict[str, Any], chain: st
     }
 
 
+# Geometry thresholds, set from what this machine has actually produced (973 finished models):
+# the median model has a clashscore of 0 and the 90th percentile is 4.9, so 10 is comfortably
+# outside normal, and 44 of those 973 carried at least one atom pair deeply interpenetrating.
+CLASHSCORE_WARN = 10.0
+
+
+def _geometry_findings(result: dict[str, Any]) -> list[dict[str, Any]]:
+    """Whether the coordinates themselves came out usable.
+
+    Boltz's own confidence cannot answer this. A residue whose coordinates are NaN still
+    carries a pLDDT, and two atoms sitting inside each other can both be scored confident —
+    with ``use_potentials`` off there is no step that pushes them apart, which is the default
+    here because the correction costs time. So the check is on the file, after the fact.
+    """
+    geom = result.get("geometry")
+    if not isinstance(geom, dict) or geom.get("error"):
+        return []
+    out: list[dict[str, Any]] = []
+
+    bad = geom.get("nonfinite_atoms") or 0
+    others = geom.get("other_models_nonfinite") or []
+    if bad or others:
+        where = []
+        if bad:
+            where.append(f"モデル {geom.get('model_index', 0)} の {bad} 原子")
+        where += [f"モデル {o['model_index']} の {o['nonfinite_atoms']} 原子" for o in others]
+        examples = "、".join(geom.get("nonfinite_examples") or [])
+        out.append({
+            "kind": "nonfinite", "severity": "critical",
+            "text": ("座標が数値になっていません (" + "、".join(where) + ")。"
+                     "拡散の途中で計算が発散した結果で、この構造は使えません。"
+                     "Boltz は MPS では常に float32 で回るので精度設定の問題ではなく、"
+                     "別のシードで計算し直すか、設定で計算装置を CPU に切り替えてください"
+                     + (f" / 例: {examples}" if examples else "")),
+            "detail": {"nonfinite_atoms": bad, "other_models": others},
+        })
+        return out                      # everything downstream was skipped for this model
+
+    severe = geom.get("severe_clashes") or 0
+    score = geom.get("clashscore") or 0.0
+    if severe:
+        worst = (geom.get("worst_clashes") or [{}])[0]
+        pair = f"{worst.get('a')} と {worst.get('b')} が {worst.get('dist')} Å" if worst.get("a") else ""
+        out.append({
+            "kind": "clash", "severity": "high",
+            "text": (f"原子が {severe} か所で重なっています"
+                     + (f" ({pair})" if pair else "")
+                     + "。物理補正 (use_potentials) を入れて計算し直すと解消することがあります"),
+            "detail": {"severe_clashes": severe, "clashes": geom.get("clashes"),
+                       "clashscore": score, "worst": geom.get("worst_clashes")},
+        })
+    elif score >= CLASHSCORE_WARN:
+        out.append({
+            "kind": "clash", "severity": "medium",
+            "text": (f"原子どうしの食い込みが多めです (1000 原子あたり {score} 箇所)。"
+                     "この機械で出た構造の 9 割は 5 未満なので、物理補正を入れた方がよい水準です"),
+            "detail": {"clashes": geom.get("clashes"), "clashscore": score,
+                       "worst": geom.get("worst_clashes")},
+        })
+
+    breaks = geom.get("chain_breaks") or []
+    if breaks:
+        first = breaks[0]
+        out.append({
+            "kind": "chain_break", "severity": "high",
+            "text": (f"主鎖が {len(breaks)} か所で途切れています "
+                     f"(鎖 {first['chain']} の {first['after']}-{first['before']} 間が {first['dist']} Å、"
+                     f"隣り合う残基なら {first.get('limit', 5.0):.0f} Å 未満のはず)。"
+                     "一本につながった構造として扱えません"),
+            "detail": {"chain_breaks": breaks},
+        })
+    return out
+
+
+def ensure_geometry(db: Database, job: dict[str, Any]) -> dict[str, Any]:
+    """Fill in the geometry block for a result predicted before the check existed.
+
+    973 models were already on this machine when the check was written, and they are exactly
+    the ones worth looking at. Computing it costs about 2 ms per model, so it is done on first
+    view and written back into the result rather than recomputed every time the panel opens.
+    """
+    result = job.get("result") or {}
+    models = result.get("models") or []
+    if not models or result.get("geometry") is not None or job.get("kind") != "predict":
+        return job
+    from .config import jobs_dir
+
+    job_dir = jobs_dir() / job["id"]
+    try:
+        first = job_dir / models[0]["file"]
+        if not first.exists():
+            return job                        # the files were cleaned up; nothing to measure
+        geometry = structure.geometry_check(first)
+        geometry["model_index"] = models[0].get("index", 0)
+        others = []
+        for m in models[1:]:
+            path = job_dir / m["file"]
+            if not path.exists():
+                continue
+            bad, _ = structure.nonfinite_atoms(path)
+            if bad:
+                others.append({"model_index": m.get("index"), "nonfinite_atoms": bad})
+        geometry["other_models_nonfinite"] = others
+    except Exception as exc:
+        log.info("function_risk: %s の形状チェックに失敗: %s", job.get("id"), exc)
+        geometry = {"error": f"形状チェックに失敗: {exc}"}
+    result["geometry"] = geometry
+    try:
+        db.update_job(job["id"], result=result)
+    except Exception as exc:                  # a cache miss is not worth failing the request
+        log.info("function_risk: %s の形状チェックを保存できませんでした: %s", job.get("id"), exc)
+    return job
+
+
 def assess(db: Database, job: dict[str, Any]) -> dict[str, Any]:
     """Whether this finished prediction looks like a win or like a broken molecule.
 
@@ -329,6 +443,7 @@ def assess(db: Database, job: dict[str, Any]) -> dict[str, Any]:
     if job.get("status") == "succeeded" and not models:
         findings.append({"kind": "empty", "severity": "critical",
                          "text": "構造モデルが入っていません。結果として使えません"})
+    findings.extend(_geometry_findings(result))
 
     chains = [c.get("chain") for c in (result.get("chains") or []) if c.get("chain")]
     parent = db.get_job(job["parent_id"]) if job.get("parent_id") else None
@@ -370,4 +485,9 @@ def assess(db: Database, job: dict[str, Any]) -> dict[str, Any]:
         level = "danger"
     elif findings:
         level = "warn"
-    return {"job_id": job.get("id"), "level": level, "findings": findings}
+    findings.sort(key=lambda f: SEVERITY_ORDER.get(f.get("severity"), 9))
+    # Echoed so a result stored before the check existed can show its numbers without the
+    # panel having to reload the job.
+    geometry = result.get("geometry")
+    return {"job_id": job.get("id"), "level": level, "findings": findings,
+            "geometry": geometry if isinstance(geometry, dict) else None}

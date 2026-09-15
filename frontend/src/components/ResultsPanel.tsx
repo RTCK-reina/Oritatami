@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorMessage } from '../api';
 import type { AutopilotResult, FunctionRisk } from '../api';
 import { useStore } from '../store';
-import type { Confidence, Estimate, FullJob, JobSummary, PredictJob, PredictResult, RefineJob, ScanJob } from '../types';
+import type { Confidence, Estimate, FullJob, Geometry, JobSummary, PredictJob, PredictResult, RefineJob, ScanJob } from '../types';
 import { viewerBus } from '../viewer/bus';
 import { assignChains, fmt, formatDuration } from '../workbench';
 import { PaeHeatmap, PlddtPlot, ScanHeatmap } from './charts';
@@ -181,30 +181,48 @@ function tone(v: number | undefined, good: number, ok: number): 'good' | 'ok' | 
  * annotations, measured contacts, ESM-2 conservation) and against where the gain came from,
  * and anything it finds is said here rather than left in a log.
  */
-function FunctionWarning({ jobId }: { jobId: string }) {
-    const [risk, setRisk] = useState<FunctionRisk | null>(null);
-    useEffect(() => {
-        let alive = true;
-        setRisk(null);
-        api.functionRisk(jobId).then(r => { if (alive) setRisk(r); }).catch(() => { if (alive) setRisk(null); });
-        return () => { alive = false; };
-    }, [jobId]);
+function FunctionWarning({ risk }: { risk: FunctionRisk | null }) {
     if (!risk || risk.level === 'ok' || !risk.findings.length) return null;
+    // Two different kinds of bad news share this box. One is about the molecule's job — a
+    // mutation landed on a residue that carries function. The other is about the coordinates
+    // themselves — atoms inside each other, a backbone that came apart, NaN. Saying
+    // "機能を壊している" over a clash warning would send you looking in the wrong place.
+    const GEOMETRY = ['nonfinite', 'clash', 'chain_break', 'empty'];
+    const geometry = risk.findings.filter(f => GEOMETRY.includes(f.kind));
+    const functional = risk.findings.filter(f => !GEOMETRY.includes(f.kind));
+    const head = risk.level === 'danger' ? 'この結果は使えません'
+        : functional.length && geometry.length ? '構造と機能の両方に問題があります'
+            : geometry.length ? '構造そのものに無理があります'
+                : '機能を壊している可能性があります';
     return (
         <div className={`function-risk risk-${risk.level}`} role="alert">
             <div className="function-risk-head">
                 <Icon name="warning" size={14} />
-                {risk.level === 'danger' ? 'この結果は使えない可能性があります' : '機能を壊している可能性があります'}
+                {head}
             </div>
             <ul>
                 {risk.findings.map((f, i) => <li key={i}>{f.text}</li>)}
             </ul>
-            <p className="small muted">
-                スコアが上がっていても、機能を担う残基が置き換わっていれば別の分子になっています。
-                残したい残基は「自律ループ」の禁止リストに入れてください。
-            </p>
+            {functional.length > 0 && (
+                <p className="small muted">
+                    スコアが上がっていても、機能を担う残基が置き換わっていれば別の分子になっています。
+                    残したい残基は「自律ループ」の禁止リストに入れてください。
+                </p>
+            )}
+            {geometry.length > 0 && (
+                <p className="small muted">
+                    信頼度スコアはこの種の破綻を検出しません。pLDDT が高いまま原子が重なっていることも、
+                    座標が NaN のまま自信満々に返ってくることもあります。
+                </p>
+            )}
         </div>
     );
+}
+
+/** The geometry block, or null for a result predicted before the check existed / that failed it. */
+function geometryOf(r: PredictResult): Geometry | null {
+    const g = r.geometry;
+    return g && !('error' in g) ? g : null;
 }
 
 function verdict(r: PredictResult): { level: 'good' | 'ok' | 'bad'; lines: string[] } {
@@ -277,6 +295,17 @@ function PredictResultView({ job }: { job: PredictJob }) {
     const parent = job.parent_id ? jobs.find(j => j.id === job.parent_id && j.status === 'succeeded') : undefined;
     const chainIds = r.chains.map(x => x.chain);
     const interfaces = r.interfaces && 'interfaces' in r.interfaces ? r.interfaces.interfaces : null;
+    // The same request answers two questions: is anything wrong with this result, and what
+    // are its geometry numbers. Results stored before the check existed have the block
+    // measured server-side on this first view, so it arrives here rather than in the job.
+    const [risk, setRisk] = useState<FunctionRisk | null>(null);
+    useEffect(() => {
+        let alive = true;
+        setRisk(null);
+        api.functionRisk(job.id).then(x => { if (alive) setRisk(x); }).catch(() => { if (alive) setRisk(null); });
+        return () => { alive = false; };
+    }, [job.id]);
+    const geom = geometryOf(r) ?? (risk?.geometry && !('error' in risk.geometry) ? risk.geometry : null);
     const matchesWorkbench = workbench.parentJobId === job.id;
     const v = verdict(r);
 
@@ -318,7 +347,7 @@ function PredictResultView({ job }: { job: PredictJob }) {
             <div className="results-body">
                 {tab === 'summary' && (
                     <div className="summary">
-                        <FunctionWarning jobId={job.id} />
+                        <FunctionWarning risk={risk} />
                         <div className={`verdict verdict-${v.level}`}>
                             <Icon name={v.level === 'good' ? 'check' : v.level === 'ok' ? 'info' : 'warning'} />
                             <div>{v.lines.map((line, i) => <p key={i}>{line}</p>)}</div>
@@ -328,6 +357,15 @@ function PredictResultView({ job }: { job: PredictJob }) {
                             <Metric label="平均 pLDDT" term="plddt" value={fmt((c.complex_plddt ?? 0) * 100, 1)} tone={tone((c.complex_plddt ?? 0) * 100, 80, 60)} />
                             <Metric label="pTM" term="ptm" value={fmt(c.ptm)} tone={tone(c.ptm, 0.8, 0.5)} />
                             {chainIds.length > 1 && <Metric label="ipTM" term="iptm" value={fmt(c.iptm)} tone={tone(c.iptm, 0.8, 0.6)} />}
+                            {geom && (
+                                <Metric
+                                    label="原子の衝突" term="clashscore"
+                                    value={geom.nonfinite_atoms ? 'NaN' : `${geom.clashes}`}
+                                    hint={geom.nonfinite_atoms ? '座標が数値になっていません'
+                                        : `1000 原子あたり ${geom.clashscore}${geom.severe_clashes ? ` / 深い重なり ${geom.severe_clashes} 箇所` : ''}`}
+                                    tone={geom.nonfinite_atoms || geom.severe_clashes ? 'bad'
+                                        : (geom.clashscore ?? 0) >= 10 ? 'ok' : 'good'} />
+                            )}
                             {typeof c.complex_pae === 'number' && <Metric label="PAE 平均" term="pae" value={`${fmt(c.complex_pae, 1)} Å`} />}
                         </div>
                         {r.affinity && (
