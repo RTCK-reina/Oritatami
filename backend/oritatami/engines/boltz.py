@@ -25,6 +25,7 @@ import yaml
 from .. import chem, structure
 from ..config import get_settings, msa_cache_dir, resolve_boltz_bin
 from ..seq import SequenceError, clean_sequence
+from .supervise import CPU_NAME as CPU_SECONDS_NAME
 from .supervise import LIVE_NAME as LIVE_MEMORY_NAME
 from .supervise import PEAK_NAME as PEAK_MEMORY_NAME
 
@@ -575,6 +576,16 @@ def run_prediction(job: dict[str, Any], job_dir: Path, set_phase: Callable[[str,
             # what the job actually held (6.5 MB reported against a 30 GB real footprint).
             # Those rows stay in the database but the estimator ignores anything unstamped.
             result["peak_memory_method"] = "footprint"
+        except (OSError, ValueError):
+            pass
+    # CPU seconds the run actually consumed. Wall time and compute stop being the same number
+    # the moment the machine starts swapping, and the estimator needs the one that does not.
+    cpu_file = job_dir / CPU_SECONDS_NAME
+    if cpu_file.exists():
+        try:
+            used = round(float(cpu_file.read_text("utf-8").strip()), 1)
+            result["cpu_seconds"] = used
+            result["cpu_efficiency"] = round(used / elapsed, 3) if elapsed > 0 else None
         except (OSError, ValueError):
             pass
     result["msa"] = {

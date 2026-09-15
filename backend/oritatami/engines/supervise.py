@@ -48,43 +48,90 @@ import signal
 import subprocess
 import sys
 import time
+from typing import Any
 
 # Written into the command's working directory, which is the job directory.
 PEAK_NAME = "peak_memory.txt"
+CPU_NAME = "cpu_seconds.txt"
 LIVE_NAME = "live_memory.json"
 
-# struct rusage_info_v4, uint64 slots after the 16-byte uuid. Verified against
-# /usr/bin/footprint on this machine: slot 9 matched "phys_footprint" and slot 30 matched
-# "phys_footprint_peak" on a live 30 GB process.
+# struct rusage_info_v4, read as uint64 slots with the 16-byte uuid occupying slots 0-1.
+# Verified against /usr/bin/footprint on this machine: slot 9 matched "phys_footprint" and
+# slot 30 matched "phys_footprint_peak" on a live 30 GB process. Slots 2 and 3 were verified
+# against `ps -o time=` on a live prediction: 0.8e9 + 48.6e9 ticks came to 2,058 s, which is
+# what ps reported to the second.
+_SLOT_USER_TIME = 2
+_SLOT_SYSTEM_TIME = 3
 _SLOT_PHYS_FOOTPRINT = 9
 _SLOT_LIFETIME_MAX = 30
 _RUSAGE_INFO_V4 = 4
 
 _libc = None
+# ri_user_time and ri_system_time are mach absolute time units, not nanoseconds. On this
+# machine one tick is 125/3 ns; reading the timebase rather than hardcoding it keeps the
+# number right on hardware where that ratio differs.
+_timebase: float | None = None
 
 
-def _rusage_footprint(pid: int) -> tuple[int, int]:
-    """(current, lifetime peak) physical footprint of one process, in bytes. (0, 0) if unreadable."""
+def _libc_handle() -> Any:
     global _libc
     if _libc is None:
         try:
             _libc = ctypes.CDLL(ctypes.util.find_library("c") or "libc.dylib", use_errno=True)
         except OSError:
             _libc = False
-    if _libc is False:
-        return 0, 0
+    return _libc
+
+
+def _tick_seconds() -> float:
+    """Seconds per mach absolute time unit. 1e-9 if the timebase cannot be read."""
+    global _timebase
+    if _timebase is not None:
+        return _timebase
+    _timebase = 1e-9
+    lib = _libc_handle()
+    if lib is not False:
+        class _Timebase(ctypes.Structure):
+            _fields_ = [("numer", ctypes.c_uint32), ("denom", ctypes.c_uint32)]
+
+        tb = _Timebase()
+        try:
+            if lib.mach_timebase_info(ctypes.byref(tb)) == 0 and tb.denom:
+                _timebase = (tb.numer / tb.denom) * 1e-9
+        except (AttributeError, OSError, ZeroDivisionError):
+            pass
+    return _timebase
+
+
+def _rusage(pid: int) -> tuple[int, int, float, float]:
+    """(footprint, lifetime peak, user seconds, system seconds) for one process.
+
+    All zeros when the process is gone or the call is unavailable.
+    """
+    lib = _libc_handle()
+    if lib is False:
+        return 0, 0, 0.0, 0.0
     buf = (ctypes.c_uint64 * 64)()
     try:
-        rc = _libc.proc_pid_rusage(ctypes.c_int(pid), ctypes.c_int(_RUSAGE_INFO_V4), ctypes.byref(buf))
+        rc = lib.proc_pid_rusage(ctypes.c_int(pid), ctypes.c_int(_RUSAGE_INFO_V4), ctypes.byref(buf))
     except (AttributeError, OSError):
-        return 0, 0
+        return 0, 0, 0.0, 0.0
     if rc != 0:
-        return 0, 0
+        return 0, 0, 0.0, 0.0
     peak = int(buf[_SLOT_LIFETIME_MAX])
     now = int(buf[_SLOT_PHYS_FOOTPRINT])
+    tick = _tick_seconds()
+    user = int(buf[_SLOT_USER_TIME]) * tick
+    system = int(buf[_SLOT_SYSTEM_TIME]) * tick
     # The lifetime max can only be >= the current value; if it is not, the layout is wrong
     # for this OS version and the number would be nonsense. Prefer the current reading.
-    return now, (peak if peak >= now else now)
+    return now, (peak if peak >= now else now), user, system
+
+
+def _rusage_footprint(pid: int) -> tuple[int, int]:
+    """(current, lifetime peak) physical footprint of one process, in bytes. (0, 0) if unreadable."""
+    now, peak, _, _ = _rusage(pid)
+    return now, peak
 
 
 def _group_pids(pgid: int) -> list[int]:
@@ -101,14 +148,22 @@ def _group_pids(pgid: int) -> list[int]:
     return pids
 
 
-def _sample_group(pgid: int, seen: dict[int, int]) -> int:
-    """Update the per-pid peak footprints for our group; return what it holds right now."""
+def _sample_group(pgid: int, seen: dict[int, int],
+                  cpu: dict[int, tuple[float, float]] | None = None) -> int:
+    """Update the per-pid peak footprints for our group; return what it holds right now.
+
+    ``cpu`` accumulates (user, system) seconds per pid. Kept per pid rather than summed on
+    the spot because a process that exits takes its counter with it, and the last reading
+    before it went is the one that counts.
+    """
     live = 0
     for pid in _group_pids(pgid):
-        now, peak = _rusage_footprint(pid)
+        now, peak, user, system = _rusage(pid)
         live += now
         if peak > seen.get(pid, 0):
             seen[pid] = peak
+        if cpu is not None and (user or system):
+            cpu[pid] = (user, system)
     return live
 
 
@@ -140,21 +195,47 @@ def _total_gb() -> float | None:
         return None
 
 
-def _write_live(live_bytes: int, peak_bytes: int) -> None:
-    """Publish the current sample for the app to read. Best effort; a miss costs one tick."""
+# The last live sample, so efficiency can be measured against it rather than against the
+# start of the run — a job that spent an hour resident and then fell into swap should report
+# what it is doing now, not the average of the two.
+_last_live: dict[str, float] = {}
+
+
+def _write_live(live_bytes: int, peak_bytes: int, cpu_sec: float = 0.0,
+                user_sec: float = 0.0) -> None:
+    """Publish the current sample for the app to read. Best effort; a miss costs one tick.
+
+    ``efficiency`` is CPU seconds per wall second since the previous sample. It is the one
+    number that says whether a long run is computing or waiting: resident, a prediction keeps
+    a core busy; in swap it spends its wall time blocked on page faults and the ratio
+    collapses. Measured on a 1,278-token run that had fallen into swap: 4.6 CPU seconds per
+    30 wall seconds, 98 % of it system time.
+    """
     total = _total_gb()
     try:
         free_gb = shutil.disk_usage("/").free / 1024**3
     except OSError:
         free_gb = None
+    now = time.time()
+    efficiency = None
+    if _last_live and cpu_sec > 0:
+        d_wall = now - _last_live["ts"]
+        d_cpu = cpu_sec - _last_live["cpu_sec"]
+        if d_wall >= 1.0 and d_cpu >= 0:
+            efficiency = round(d_cpu / d_wall, 3)
     sample = {
-        "ts": time.time(),
+        "ts": now,
         "footprint_gb": round(live_bytes / 1024**3, 2),
         "peak_gb": round(peak_bytes / 1024**3, 2),
         "total_gb": round(total, 1) if total else None,
         "swap_used_gb": None,
         "free_disk_gb": round(free_gb, 1) if free_gb is not None else None,
+        "cpu_sec": round(cpu_sec, 1),
+        "user_share": round(user_sec / cpu_sec, 3) if cpu_sec > 0 else None,
+        "efficiency": efficiency,
     }
+    if cpu_sec > 0:
+        _last_live.update(ts=now, cpu_sec=cpu_sec)
     swap = _swap_used_gb()
     sample["swap_used_gb"] = round(swap, 2) if swap is not None else None
     # Write-then-rename so the reader never sees half a file. Same directory, so the rename
@@ -225,12 +306,23 @@ def main(argv: list[str]) -> int:
     signal.signal(signal.SIGINT, forward)
     pgid = os.getpgrp()
     seen: dict[int, int] = {}
+    cpu: dict[int, tuple[float, float]] = {}
     samples = 0
 
     def record_peak() -> None:
-        _sample_group(pgid, seen)          # one last look before anything is reaped
+        _sample_group(pgid, seen, cpu)     # one last look before anything is reaped
         # Our own footprint is noise next to the command's; leave it in rather than guess.
         peak = sum(seen.values())
+        used = sum(u + s for u, s in cpu.values())
+        if used:
+            # What the run actually cost in compute, as opposed to how long it took. The two
+            # are the same thing only while the job fits in memory, and the estimate needs
+            # the one that does not change when the machine starts swapping.
+            try:
+                with open(CPU_NAME, "w", encoding="utf-8") as fh:
+                    fh.write(f"{used:.1f}\n")
+            except OSError:
+                pass
         if not peak:
             return
         try:
@@ -242,8 +334,10 @@ def main(argv: list[str]) -> int:
     while child.poll() is None:
         samples += 1
         if samples % 3 == 0:            # every ~3 s; enumerating processes is not free
-            live = _sample_group(pgid, seen)
-            _write_live(live, sum(seen.values()))
+            live = _sample_group(pgid, seen, cpu)
+            _write_live(live, sum(seen.values()),
+                        cpu_sec=sum(u + s for u, s in cpu.values()),
+                        user_sec=sum(u for u, _ in cpu.values()))
         if not _alive(parent) or os.getppid() != parent:
             print("[oritatami] アプリが終了したため計算を停止します", flush=True)
             record_peak()               # read the footprints before the group is torn down

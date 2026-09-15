@@ -68,6 +68,12 @@ export interface LiveMemory {
     total_gb: number | null;
     swap_used_gb: number | null;
     free_disk_gb: number | null;
+    /** CPU seconds the Boltz process group has consumed so far */
+    cpu_sec?: number;
+    /** fraction of that which is user time; a thrashing run is almost all system time */
+    user_share?: number | null;
+    /** CPU seconds per wall second since the previous sample — the run's real speed */
+    efficiency?: number | null;
 }
 
 export interface Confidence {

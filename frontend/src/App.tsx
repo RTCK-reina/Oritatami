@@ -113,18 +113,30 @@ function QueueEta() {
     }, [active]);
 
     if (!eta || !eta.jobs) return null;
-    const finish = eta.finish_at ? clock(eta.finish_at) : null;
-    const rough = eta.unknown > 0;
+    // Two different statements, and the difference matters when you are deciding whether to
+    // leave the machine: "done by 17:14" and "busy until at least 17:14, with one job nobody
+    // can time" are not the same promise.
+    const until = eta.complete ? eta.finish_at : eta.at_least_until;
+    const clockText = until ? clock(until) : null;
+    const running = eta.items.find(i => i.status === 'running');
+    const stalled = running && running.basis === 'unknown';
+    const slow = running && typeof running.efficiency === 'number' && running.efficiency < 0.15;
+    const label = eta.complete
+        ? `残り ${human(eta.seconds)}`
+        : eta.counted > 0 ? `残り ${human(eta.seconds)} 以上` : '残り 不明';
     return (
-        <button type="button" className="pill pill-eta" onClick={() => showLeftTab('jobs')}
+        <button type="button" className={`pill pill-eta${stalled || slow ? ' pill-warn' : ''}`}
+            onClick={() => showLeftTab('jobs')}
             title={[
                 `待機・実行中 ${eta.jobs} 件`,
-                eta.seconds ? `残り 約 ${human(eta.seconds)}` : null,
-                finish ? `終了見込み ${finish}` : null,
-                rough ? `${eta.unknown} 件は見積もれないので、実際はこれより長くなります` : null,
-                '過去の実績から推定。MSA サーバーの混み具合で前後します',
+                eta.counted ? `見積もれた分の合計 約 ${human(eta.seconds)}` : null,
+                clockText ? (eta.complete ? `終了見込み ${clockText}` : `少なくとも ${clockText} までは塞がります`) : null,
+                eta.unknown ? `${eta.unknown} 件は残り時間を推定できません` : null,
+                running?.note || null,
+                typeof running?.progress === 'number' ? `実行中のジョブ: 計算量ベースで ${(running.progress * 100).toFixed(0)}%` : null,
+                '実行中のジョブは消費した計算量から、待機中は過去の実績から推定しています',
             ].filter(Boolean).join('\n')}>
-            <Icon name="rotate" size={11} /> 残り {human(eta.seconds)}{finish ? ` · ${finish}` : ''}{rough ? '+' : ''}
+            <Icon name="rotate" size={11} /> {label}{clockText ? ` · ${clockText}` : ''}
         </button>
     );
 }

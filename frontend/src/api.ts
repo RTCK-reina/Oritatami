@@ -233,11 +233,33 @@ export interface SearchHistory {
 export interface QueueEta {
     jobs: number;
     counted: number;
+    /** jobs whose remaining time cannot be estimated; the total is a lower bound while > 0 */
     unknown: number;
     seconds: number;
+    /** true when every job in the queue could be timed */
+    complete: boolean;
+    /** wall clock the queue empties — only when `complete` */
     finish_at: number | null;
+    /** wall clock the queue is busy until at least, when something could not be timed */
+    at_least_until: number | null;
     now: number;
-    items: { id: string; title: string; status: string; kind: string; seconds: number | null }[];
+    items: QueueEtaItem[];
+}
+
+export interface QueueEtaItem {
+    id: string;
+    title: string;
+    status: string;
+    kind: string;
+    seconds: number | null;
+    /** cpu = measured from what the run has computed; baseline = from history; unknown = no honest answer */
+    basis?: 'cpu' | 'baseline' | 'unknown';
+    /** 0–1, from CPU seconds consumed against what this size costs */
+    progress?: number | null;
+    /** CPU seconds per wall second right now; collapses when the machine swaps */
+    efficiency?: number | null;
+    overrun?: boolean;
+    note?: string;
 }
 
 export interface RiskReason { kind: string; label: string; severity: string }

@@ -608,6 +608,8 @@ def queue_eta() -> dict[str, Any]:
                        if j["status"] in ("queued", "running")),
                       key=lambda j: j["created_at"]):
         seconds: float | None = None
+        detail: dict[str, Any] = {}
+        normalized = None
         if job["kind"] == "predict":
             try:
                 normalized = boltz.normalize_spec(job["spec"])
@@ -621,23 +623,33 @@ def queue_eta() -> dict[str, Any]:
         else:
             # ESM lanes are short and run beside the predictions, so they do not extend the wait
             seconds = 0.0
-        if job["status"] == "running" and seconds is not None:
+        if job["status"] == "running" and normalized is not None:
+            # A running job is not a baseline any more: it has been measured. The remaining
+            # time comes from what it has actually computed against what this size costs,
+            # which is the only thing that stays true once the machine starts swapping.
             live = state.jobs.live(job["id"]) or {}
             started = live.get("started_at") or job.get("started_at") or now
-            seconds = max(15.0, seconds - (now - started))
+            detail = estimate.remaining(normalized, now - started, seconds or 0.0, live, history)
+            seconds = detail["seconds"]
         if seconds is None:
             unknown += 1
         else:
             total += seconds
             counted += 1
         parts.append({"id": job["id"], "title": job["title"], "status": job["status"],
-                      "kind": job["kind"], "seconds": None if seconds is None else round(seconds)})
+                      "kind": job["kind"], "seconds": None if seconds is None else round(seconds),
+                      **{k: detail[k] for k in ("basis", "progress", "efficiency", "overrun", "note")
+                         if k in detail}})
     return {
         "jobs": len(parts),
         "counted": counted,
         "unknown": unknown,
         "seconds": round(total),
-        "finish_at": now + total if parts else None,
+        # With an untimeable job in the queue the clock time is a lower bound, not a forecast.
+        # Saying which it is costs one field and stops the number from being read as a promise.
+        "complete": unknown == 0,
+        "finish_at": now + total if parts and unknown == 0 else None,
+        "at_least_until": now + total if parts and unknown else None,
         "now": now,
         "items": parts[:50],
     }

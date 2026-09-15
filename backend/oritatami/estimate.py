@@ -234,3 +234,102 @@ def estimate(spec: dict[str, Any], needs_msa_search: bool, history: list[dict[st
                    "level": level, "basis": mem_basis, "samples": mem_samples,
                    "beyond_physical": beyond_physical, "applecare": get_settings().applecare},
     }
+
+
+# ------------------------------------------------------------------ live: what is left
+# A prediction reports no progress from inside the diffusion phase — Boltz's own bar sits at
+# 1/1 from start to finish — so "how much longer" cannot be read off the run. What can be read
+# is how much compute it has consumed, and that is enough, because the arithmetic a prediction
+# has to do does not change when the machine gets slow. Only the waiting does.
+#
+# So the estimate is split in two:
+#
+#   * how many CPU seconds this size costs — stable, fitted from finished runs
+#   * how many CPU seconds this run is getting per wall second — measured now, every 3 s
+#
+# Wall time remaining is the first divided by the second. When a job falls into swap the
+# second collapses (measured: 4.6 CPU seconds per 30 wall seconds on a 1,278-token run, 98 %
+# of it system time) and the estimate grows to match, instead of being clamped to a floor and
+# claiming the job is nearly done.
+MIN_EFFICIENCY = 0.02          # below this the arithmetic explodes; report "unknown" instead
+EFFICIENCY_HEALTHY = 0.5       # a resident run keeps at least half a core busy on this machine
+
+
+def _cpu_points(history: list[dict[str, Any]]) -> list[tuple[float, float]]:
+    points = []
+    for job in history:
+        res = job.get("result") or {}
+        nspec = res.get("normalized_spec") or {}
+        used = res.get("cpu_seconds")
+        t = res.get("token_estimate") or nspec.get("token_estimate")
+        if not used or not t:
+            continue
+        points.append((work_units(int(t), nspec.get("params") or {}), float(used)))
+    return points
+
+
+def cpu_cost(spec: dict[str, Any], history: list[dict[str, Any]]) -> tuple[float | None, int]:
+    """CPU seconds this prediction should cost, and how many runs that came from."""
+    points = _cpu_points(history)
+    if len(points) < 2:
+        return None, len(points)
+    load, k = _fit_structure(points)
+    work = work_units(int(spec["token_estimate"]), spec["params"])
+    return max(1.0, load + k * work), len(points)
+
+
+def normal_efficiency(history: list[dict[str, Any]]) -> float | None:
+    """CPU seconds per wall second for runs that stayed inside physical memory."""
+    total = memory_gb()
+    values = []
+    for job in history:
+        res = job.get("result") or {}
+        eff, peak = res.get("cpu_efficiency"), res.get("peak_memory_gb")
+        if not eff or eff <= 0:
+            continue
+        if total and peak and peak > total:
+            continue                      # a run that swapped is not the normal case
+        values.append(float(eff))
+    return statistics.median(values) if values else None
+
+
+def remaining(spec: dict[str, Any], elapsed: float, baseline: float,
+              live: dict[str, Any] | None, history: list[dict[str, Any]]) -> dict[str, Any]:
+    """How much longer a running prediction needs, and on what grounds.
+
+    ``seconds`` is None when there is no honest answer. That is the point: a job past its
+    baseline with no compute measurement behind it is a job nobody can time, and saying so is
+    more useful than a number that keeps resetting to a floor.
+    """
+    live = live or {}
+    eff = live.get("efficiency")
+    cpu_done = live.get("cpu_sec") or 0.0
+    expected, samples = cpu_cost(spec, history)
+    out: dict[str, Any] = {
+        "seconds": None, "basis": "unknown", "progress": None,
+        "efficiency": eff, "cpu_seconds": cpu_done or None,
+        "cpu_expected": round(expected) if expected else None,
+        "overrun": elapsed > baseline, "samples": samples, "note": "",
+    }
+
+    if expected and cpu_done > 0 and isinstance(eff, (int, float)) and eff >= MIN_EFFICIENCY:
+        progress = cpu_done / expected
+        out["progress"] = round(min(progress, 0.999), 3)
+        out["seconds"] = round(max(0.0, expected - cpu_done) / eff)
+        out["basis"] = "cpu"
+        normal = normal_efficiency(history) or EFFICIENCY_HEALTHY
+        if eff < normal / 3:
+            out["note"] = (f"実効速度が通常の {eff / normal:.0%} まで落ちています"
+                           "（メモリが足りず、スワップ待ちになっている可能性が高い）")
+        return out
+
+    if isinstance(eff, (int, float)) and 0 <= eff < MIN_EFFICIENCY:
+        out["note"] = "ほとんど計算が進んでいません（スワップ待ち）。残り時間は推定できません"
+        return out
+    if not out["overrun"]:
+        out["seconds"] = round(max(0.0, baseline - elapsed))
+        out["basis"] = "baseline"
+        return out
+    out["note"] = (f"推定 {baseline / 60:.0f} 分に対して実測 {elapsed / 60:.0f} 分。"
+                   "この規模の完走実績がないため、残りを推定できません")
+    return out

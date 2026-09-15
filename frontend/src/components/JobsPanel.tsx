@@ -217,6 +217,16 @@ function RunMemory({ mem, overrun }: { mem?: LiveMemory; overrun: number }) {
             {swapping && mem.free_disk_gb !== null && (
                 <span className={mem.free_disk_gb < 20 ? 'bad-text' : 'muted'}>空き {mem.free_disk_gb} GB</span>
             )}
+            {typeof mem.efficiency === 'number' && (
+                // Boltz reports no progress from inside the diffusion phase, so this is the
+                // only thing that separates "big" from "stuck": CPU seconds earned per wall
+                // second. Resident it sits near 1; in swap it collapses to a few per cent.
+                <span className={mem.efficiency < 0.15 ? 'warn' : 'muted'}
+                    title={`CPU 時間 ÷ 実時間。1.0 なら 1 コアを止めずに回せている状態です${
+                        typeof mem.user_share === 'number' ? `\nうち計算 (user) が ${(mem.user_share * 100).toFixed(0)}%` : ''}`}>
+                    実効速度 {(mem.efficiency * 100).toFixed(0)}%
+                </span>
+            )}
             {overrun >= 2 && (
                 <span className="muted" title="Boltz の内部進捗は最後まで 1/1 のままです">
                     進捗表示なし

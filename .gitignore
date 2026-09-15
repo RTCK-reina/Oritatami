@@ -15,4 +15,5 @@ dist/
 Native/.build/
 Claude outputs/
 peak_memory.txt
+cpu_seconds.txt
 _loop/

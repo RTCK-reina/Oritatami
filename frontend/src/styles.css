@@ -962,6 +962,8 @@ table.variants tr.current td { background: color-mix(in srgb, var(--accent) 10%,
 }
 .queue-eta .icon { flex: none; color: var(--accent); }
 .pill-eta { cursor: pointer; display: inline-flex; align-items: center; gap: 5px; background: transparent; }
+/* A queue nobody can time reads differently from one that is merely long. */
+.pill.pill-warn { border-color: var(--warn); color: var(--warn); }
 .pill-eta:hover { border-color: var(--accent); color: var(--text); }
 
 /* Ollama が自分で入ってくるときの進捗 */
