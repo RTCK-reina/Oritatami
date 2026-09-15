@@ -1,110 +1,127 @@
-"""How much longer a running prediction needs, measured rather than assumed.
+"""Timing a prediction that does not fit in memory.
 
-Boltz reports no progress from inside the diffusion phase, so the old answer was the
-token-based estimate minus elapsed, clamped to a 15-second floor. That floor is a lie in the
-one case it matters: a 1,278-token job that had been running 162 minutes against a 26-minute
-estimate reported "15 秒" because the subtraction went negative.
+Boltz does not fail when the working set stops fitting — it pages, and keeps going at the
+speed of the SSD. A 1,278-token job estimated at 40 minutes was still running after 212, and
+the queue view said "15 秒" the whole time because the estimate had gone negative and been
+clamped to a floor.
+
+Two measurements shape what is here, both taken on this machine:
+
+* three calibration runs inside memory — 76, 304 and 608 tokens — where wall time went
+  36 s → 116 s → 389 s while CPU time went 20 s → 27 s → 40 s. CPU time is not a progress
+  meter when the GPU does the arithmetic.
+* the 1,278-token run while it was paging: 1.6 % user time against 64-86 % for the healthy
+  three, and about 565 MB/s of swap traffic.
 """
 
 import pytest
 from oritatami import estimate
 
-SPEC = {"token_estimate": 800, "params": {"diffusion_samples": 1, "sampling_steps": 200,
-                                          "recycling_steps": 4}}
+PARAMS = {"diffusion_samples": 1, "sampling_steps": 200, "recycling_steps": 4}
+SPEC = {"token_estimate": 1278, "params": PARAMS}
+TOTAL = 24.0
 
 
-def _finished(tokens, cpu_seconds, elapsed, peak=None):
-    res = {"token_estimate": tokens, "cpu_seconds": cpu_seconds, "elapsed_sec": elapsed,
-           "cpu_efficiency": round(cpu_seconds / elapsed, 3),
-           "normalized_spec": {"token_estimate": tokens, "params": SPEC["params"]}}
-    if peak is not None:
-        res["peak_memory_gb"] = peak
-        res["peak_memory_method"] = "footprint"
-    return {"id": "j", "result": res}
+def test_a_job_that_fits_pays_nothing():
+    p = estimate.swap_penalty(14.75, PARAMS, TOTAL)       # 608 トークンの実測ピーク
+    assert p["overage_gb"] == 0.0 and p["seconds"] == 0.0
 
 
-HISTORY = [_finished(200, 60, 65, 6.0), _finished(400, 260, 280, 9.0),
-           _finished(800, 1000, 1080, 20.0)]
+def test_the_capacity_leaves_room_for_the_system(monkeypatch):
+    assert estimate.resident_capacity_gb(24.0) == 20.0
+    # None means "this machine", not "unknown"
+    monkeypatch.setattr(estimate, "memory_gb", lambda: 36.0)
+    assert estimate.resident_capacity_gb(None) == 32.0
+    monkeypatch.setattr(estimate, "memory_gb", lambda: None)
+    assert estimate.resident_capacity_gb(None) is None
 
 
-def test_cpu_cost_needs_two_measured_runs():
-    assert estimate.cpu_cost(SPEC, [])[0] is None
-    assert estimate.cpu_cost(SPEC, HISTORY[:1])[0] is None
-    cost, n = estimate.cpu_cost(SPEC, HISTORY)
-    assert n == 3 and cost > 0
+def test_the_anchor_case_lands_in_the_right_hours():
+    """45.56 GB on a 24 GB machine ran past 212 minutes without finishing.
+
+    The model is allowed to be wrong about the minutes and not about the scale: anything
+    under two hours would have been just as useless as the 40-minute answer it replaced.
+    """
+    p = estimate.swap_penalty(45.56, PARAMS, TOTAL)
+    assert p["overage_gb"] == pytest.approx(25.6, abs=0.1)
+    assert 2.5 * 3600 <= p["seconds"] <= 6 * 3600
+    assert p["passes"] == 280
 
 
-def test_remaining_is_measured_from_what_the_run_has_computed():
-    cost, _ = estimate.cpu_cost(SPEC, HISTORY)
-    live = {"cpu_sec": cost / 2, "efficiency": 1.0}
-    out = estimate.remaining(SPEC, elapsed=cost / 2, baseline=cost, live=live, history=HISTORY)
-    assert out["basis"] == "cpu"
-    assert out["progress"] == pytest.approx(0.5, abs=0.02)
-    assert out["seconds"] == pytest.approx(cost / 2, rel=0.05)
+def test_the_penalty_grows_with_the_overage():
+    small = estimate.swap_penalty(22.0, PARAMS, TOTAL)["seconds"]
+    large = estimate.swap_penalty(30.0, PARAMS, TOTAL)["seconds"]
+    assert large > small > 0
+    # linear in the overage: twice as much outside memory, twice the paging
+    a = estimate.swap_penalty(25.0, PARAMS, TOTAL)["seconds"]
+    b = estimate.swap_penalty(30.0, PARAMS, TOTAL)["seconds"]
+    assert b / a == pytest.approx(10 / 5, rel=0.01)
 
 
-def test_a_slow_run_gets_a_longer_estimate_not_a_floor():
-    """Same work done, one tenth of the speed: ten times the remaining time."""
-    cost, _ = estimate.cpu_cost(SPEC, HISTORY)
-    fast = estimate.remaining(SPEC, 100, cost, {"cpu_sec": cost / 2, "efficiency": 1.0}, HISTORY)
-    slow = estimate.remaining(SPEC, 100, cost, {"cpu_sec": cost / 2, "efficiency": 0.1}, HISTORY)
-    assert slow["seconds"] == pytest.approx(fast["seconds"] * 10, rel=0.02)
-    assert "実効速度" in slow["note"]
+def test_fewer_diffusion_steps_cost_less_paging():
+    many = estimate.swap_penalty(40.0, {**PARAMS, "sampling_steps": 200}, TOTAL)["seconds"]
+    few = estimate.swap_penalty(40.0, {**PARAMS, "sampling_steps": 50}, TOTAL)["seconds"]
+    assert few < many
 
 
-def test_a_thrashing_run_reports_no_estimate_rather_than_a_number():
-    out = estimate.remaining(SPEC, 9800, 1500, {"cpu_sec": 2000, "efficiency": 0.005}, HISTORY)
-    assert out["seconds"] is None and out["basis"] == "unknown"
-    assert "スワップ" in out["note"]
+def test_the_estimate_carries_the_paging_term():
+    spec = {"token_estimate": 1278, "params": PARAMS}
+    out = estimate.estimate(spec, False, [])
+    assert out["breakdown"]["paging"] > 0
+    assert out["seconds"] >= out["breakdown"]["paging"]
+    assert out["memory"]["overage_gb"] > 0
 
 
-def test_an_overrun_with_no_measurement_says_so_instead_of_15_seconds():
-    """The case that prompted this: 162 minutes against a 26-minute estimate."""
-    out = estimate.remaining(SPEC, elapsed=9800, baseline=1560, live={}, history=[])
-    assert out["seconds"] is None
-    assert out["overrun"] is True
-    assert "163 分" in out["note"] and "26 分" in out["note"]
+# ---------------------------------------------------------------- which regime, live
+def test_user_share_separates_the_regimes():
+    assert estimate.regime({"user_share": 0.642, "cpu_sec": 40}) == "resident"   # 608 実測
+    assert estimate.regime({"user_share": 0.016, "cpu_sec": 2455}) == "paging"   # 1278 実測
 
 
-def test_before_the_estimate_runs_out_the_baseline_is_still_used():
-    out = estimate.remaining(SPEC, elapsed=100, baseline=1000, live={}, history=[])
-    assert out["basis"] == "baseline" and out["seconds"] == 900
-    assert out["overrun"] is False
+def test_cpu_efficiency_is_not_used_as_a_health_signal():
+    """A healthy 608-token run sat at 0.104 and the paging one at 0.21 — higher."""
+    healthy = {"user_share": 0.642, "cpu_sec": 40, "efficiency": 0.104}
+    paging = {"user_share": 0.016, "cpu_sec": 2455, "efficiency": 0.21}
+    assert estimate.regime(healthy) == "resident"
+    assert estimate.regime(paging) == "paging"
 
 
-def test_normal_efficiency_ignores_runs_that_swapped(monkeypatch):
-    monkeypatch.setattr(estimate, "memory_gb", lambda: 24.0)
-    history = HISTORY + [_finished(1278, 2000, 20000, 42.0)]     # 10 % efficiency, swapped
-    assert estimate.normal_efficiency(history) > 0.8
+def test_the_footprint_decides_before_enough_cpu_has_accrued():
+    assert estimate.regime({"footprint_gb": 34.0, "total_gb": 24.0, "cpu_sec": 1}) == "paging"
+    assert estimate.regime({"footprint_gb": 12.0, "total_gb": 24.0, "cpu_sec": 1}) == "resident"
+    assert estimate.regime({}) == "unknown"
 
 
-def test_efficiency_is_ignored_when_the_supervisor_did_not_report_it():
-    out = estimate.remaining(SPEC, 100, 1000, {"cpu_sec": 50}, HISTORY)
-    assert out["basis"] == "baseline"
+def test_remaining_adds_the_paging_time_from_the_measured_footprint():
+    live = {"peak_gb": 45.56, "total_gb": TOTAL, "user_share": 0.016, "cpu_sec": 2455}
+    out = estimate.remaining(SPEC, elapsed=600, baseline=2398, live=live, history=[])
+    assert out["basis"] == "swap" and out["regime"] == "paging"
+    assert out["seconds"] > 2 * 3600
+    assert out["overage_gb"] == pytest.approx(25.6, abs=0.1)
+    assert "物理メモリ" in out["note"]
 
 
-# ---------------------------------------------------------------- through the endpoint
-def test_queue_eta_marks_an_untimeable_queue_as_a_lower_bound(monkeypatch):
-    """A clock time only means something when every job in the queue could be timed."""
-    from fastapi.testclient import TestClient
-    from oritatami.app import app, state
+def test_remaining_is_the_plain_baseline_when_it_fits():
+    live = {"peak_gb": 14.75, "total_gb": TOTAL, "user_share": 0.642, "cpu_sec": 40}
+    out = estimate.remaining({"token_estimate": 608, "params": PARAMS},
+                             elapsed=100, baseline=389, live=live, history=[])
+    assert out["basis"] == "baseline" and out["seconds"] == 289
+    assert out["regime"] == "resident" and out["overage_gb"] == 0.0
 
-    with TestClient(app) as client:
-        job = state.db.insert_job(
-            kind="predict", title="テスト", parent_id=None, origin="user",
-            spec={"components": [{"type": "protein", "sequence": "MQIFVKTLTGKTITLEVEPSD",
-                                  "chains": ["A"], "msa": "single"}], "params": {}})
-        state.db.update_job(job["id"], status="running", started_at=0.0)
-        # 3 hours in, almost no compute earned: the thrashing case.
-        monkeypatch.setattr(state.jobs, "live",
-                            lambda _id: {"started_at": __import__("time").time() - 10800,
-                                         "cpu_sec": 40.0, "efficiency": 0.004})
-        body = client.get("/api/jobs/eta").json()
 
-    assert body["complete"] is False
-    assert body["finish_at"] is None
-    assert body["at_least_until"] is not None or body["counted"] == 0
-    item = next(i for i in body["items"] if i["id"] == job["id"])
-    assert item["seconds"] is None
-    assert item["overrun"] is True
-    assert item["basis"] == "unknown"
+def test_past_everything_the_model_accounts_for_it_says_so():
+    live = {"peak_gb": 45.56, "total_gb": TOTAL, "user_share": 0.016, "cpu_sec": 2455}
+    out = estimate.remaining(SPEC, elapsed=60 * 3600, baseline=2398, live=live, history=[])
+    assert out["seconds"] is None and out["basis"] == "unknown" and out["overrun"] is True
+    assert "ページング" in out["note"]
+
+
+def test_progress_is_elapsed_against_the_corrected_total():
+    live = {"peak_gb": 45.56, "total_gb": TOTAL, "user_share": 0.016, "cpu_sec": 2455}
+    out = estimate.remaining(SPEC, elapsed=out_total(SPEC, live) / 2, baseline=2398,
+                             live=live, history=[])
+    assert out["progress"] == pytest.approx(0.5, abs=0.01)
+
+
+def out_total(spec, live):
+    return 2398 + estimate.swap_penalty(live["peak_gb"], spec["params"], live["total_gb"])["seconds"]

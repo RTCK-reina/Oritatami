@@ -435,7 +435,9 @@ export interface Estimate {
     seconds: number;
     low: number;
     high: number;
-    breakdown: { startup: number; msa: number; structure: number; affinity: number };
+    breakdown: { startup: number; msa: number; structure: number; affinity: number;
+                 /** seconds attributed to paging the part that does not fit in memory */
+                 paging: number };
     basis: 'history' | 'default';
     samples: number;
     tokens: number;
@@ -449,6 +451,14 @@ export interface Estimate {
         beyond_physical: boolean;
         /** whether the user told us the machine is covered; only changes the wording */
         applecare: boolean;
+        /** installed memory less what macOS needs — what a run can actually keep resident */
+        capacity_gb: number | null;
+        /** GB expected to sit outside that, and what paging them costs */
+        overage_gb: number;
+        paging_sec: number;
+        /** how many times the run is modelled to walk its working set, and the resulting traffic */
+        passes: number;
+        traffic_tb: number;
     };
 }
 

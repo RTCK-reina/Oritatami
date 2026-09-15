@@ -168,9 +168,22 @@ function EstimateLine() {
     const range = `${formatDuration(est.low)}〜${formatDuration(est.high)}`;
     return (
         <div className={`estimate small mem-${est.memory.level}`} role="status">
-            <span title={`起動 ${est.breakdown.startup}s · MSA ${est.breakdown.msa}s · 構造 ${est.breakdown.structure}s · 親和性 ${est.breakdown.affinity}s`}>
+            <span title={`起動 ${est.breakdown.startup}s · MSA ${est.breakdown.msa}s · 構造 ${est.breakdown.structure}s · 親和性 ${est.breakdown.affinity}s${
+                est.breakdown.paging ? ` · ページング ${est.breakdown.paging}s` : ''}`}>
                 目安 <strong>{formatDuration(est.seconds)}</strong> <span className="muted">({range}{est.basis === 'history' ? `、過去 ${est.samples} 件の実績から` : '、実績が増えると精度が上がります'})</span>
             </span>
+            {est.memory.overage_gb > 0 && (
+                // The paging term is usually the larger half of the estimate, and it is the
+                // half nobody expects, so it gets its own line rather than living in a tooltip.
+                <span className="bad-text"
+                    title={`収まる分 ${est.memory.capacity_gb} GB に対して ${est.memory.peak_gb} GB。`
+                        + `\n拡散 ${est.memory.passes} 回ぶん作業セットを往復するとして ${est.memory.traffic_tb} TB、`
+                        + `\nスワップの実測 565 MB/s（常駐なら 97 GB/s）で割った値です。`
+                        + `\n実測 1 件を元にした係数なので、桁は信用できますが端数は信用しないでください。`}>
+                    うち <strong>{formatDuration(est.memory.paging_sec)}</strong> はページング待ちです
+                    （{est.memory.overage_gb} GB が物理メモリに収まりません）
+                </span>
+            )}
             <span className="muted">{est.tokens} トークン<InfoTip term="tokens" />{est.msa_reuse ? ' · MSA 再利用' : est.needs_msa_search ? ' · MSA 検索あり' : ''}{est.queued_ahead ? ` · 先に ${est.queued_ahead} 件` : ''}</span>
             {est.memory.level !== 'ok' && (
                 <span
@@ -188,8 +201,8 @@ function EstimateLine() {
                                 <strong className="bad-text">保証なしで回すな — </strong>
                             )}
                             {est.memory.beyond_physical
-                                ? '搭載メモリを超えるので走行中ずっとスワップし、遅くなるうえ SSD を消耗させます（止まりはしません）。'
-                                : '物理メモリを超えるとスワップに落ちて実測で約 300 倍遅くなります（止まりはしません）。'}
+                                ? '搭載メモリを超えるので走行中ずっとスワップし、SSD を消耗させます（止まりはしません。時間は上の目安に織り込み済みです）。'
+                                : '物理メモリを超えるとスワップに落ちます（止まりはしません。時間は上の目安に織り込み済みです）。'}
                             構成要素・コピー数を減らすか、長い配列をドメインに切り出してください
                         </>
                         : '余裕が少なめです。他のアプリを閉じると安定します'}

@@ -583,10 +583,18 @@ def run_prediction(job: dict[str, Any], job_dir: Path, set_phase: Callable[[str,
     cpu_file = job_dir / CPU_SECONDS_NAME
     if cpu_file.exists():
         try:
-            used = round(float(cpu_file.read_text("utf-8").strip()), 1)
+            parts = cpu_file.read_text("utf-8").split()
+            used = round(float(parts[0]), 1)
             result["cpu_seconds"] = used
             result["cpu_efficiency"] = round(used / elapsed, 3) if elapsed > 0 else None
-        except (OSError, ValueError):
+            if len(parts) > 1:
+                # The share of that spent computing rather than moving pages. Healthy runs
+                # measured here: 0.86 at 76 tokens, 0.73 at 304, 0.64 at 608 — it falls with
+                # size because more of the work is on the GPU. A run that paged from end to
+                # end came to 0.016.
+                result["cpu_user_seconds"] = round(float(parts[1]), 1)
+                result["cpu_user_share"] = round(float(parts[1]) / used, 3) if used else None
+        except (OSError, ValueError, IndexError):
             pass
     result["msa"] = {
         "server": needs_server,

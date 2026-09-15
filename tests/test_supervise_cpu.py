@@ -43,3 +43,14 @@ def test_efficiency_needs_a_previous_sample(tmp_path, monkeypatch):
     supervise._write_live(1024**3, 2 * 1024**3, cpu_sec=15.0, user_sec=10.0)
     second = json.loads((tmp_path / supervise.LIVE_NAME).read_text())
     assert second["efficiency"] == 0.5          # 5 CPU seconds in 10 wall seconds
+
+
+def test_the_cpu_file_records_the_user_split(tmp_path, monkeypatch):
+    """The total alone cannot say whether a run was computing or paging."""
+    monkeypatch.chdir(tmp_path)
+    cpu = {1: (12.0, 3.0), 2: (4.0, 1.0)}
+    used = sum(u + s for u, s in cpu.values())
+    user = sum(u for u, _ in cpu.values())
+    (tmp_path / supervise.CPU_NAME).write_text(f"{used:.1f} {user:.1f}\n")
+    parts = (tmp_path / supervise.CPU_NAME).read_text().split()
+    assert float(parts[0]) == 20.0 and float(parts[1]) == 16.0

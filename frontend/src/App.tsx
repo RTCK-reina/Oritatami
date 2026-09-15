@@ -120,7 +120,11 @@ function QueueEta() {
     const clockText = until ? clock(until) : null;
     const running = eta.items.find(i => i.status === 'running');
     const stalled = running && running.basis === 'unknown';
-    const slow = running && typeof running.efficiency === 'number' && running.efficiency < 0.15;
+    // Not the CPU efficiency: measured here it falls with job size even when everything is
+    // fine (0.55 at 76 tokens, 0.10 at 608) because the GPU does the work. The share of CPU
+    // spent computing rather than moving pages is what separates the regimes — 0.64-0.86
+    // healthy against 0.016 while paging.
+    const slow = running?.regime === 'paging';
     const label = eta.complete
         ? `残り ${human(eta.seconds)}`
         : eta.counted > 0 ? `残り ${human(eta.seconds)} 以上` : '残り 不明';
@@ -133,8 +137,8 @@ function QueueEta() {
                 clockText ? (eta.complete ? `終了見込み ${clockText}` : `少なくとも ${clockText} までは塞がります`) : null,
                 eta.unknown ? `${eta.unknown} 件は残り時間を推定できません` : null,
                 running?.note || null,
-                typeof running?.progress === 'number' ? `実行中のジョブ: 計算量ベースで ${(running.progress * 100).toFixed(0)}%` : null,
-                '実行中のジョブは消費した計算量から、待機中は過去の実績から推定しています',
+                typeof running?.progress === 'number' ? `実行中のジョブ: 経過 ${(running.progress * 100).toFixed(0)}%` : null,
+                '所要時間は過去の実績から。メモリに収まらない分はページング時間として上乗せしています',
             ].filter(Boolean).join('\n')}>
             <Icon name="rotate" size={11} /> {label}{clockText ? ` · ${clockText}` : ''}
         </button>

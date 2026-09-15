@@ -638,7 +638,9 @@ def queue_eta() -> dict[str, Any]:
             counted += 1
         parts.append({"id": job["id"], "title": job["title"], "status": job["status"],
                       "kind": job["kind"], "seconds": None if seconds is None else round(seconds),
-                      **{k: detail[k] for k in ("basis", "progress", "efficiency", "overrun", "note")
+                      **{k: detail[k] for k in ("basis", "progress", "efficiency", "overrun",
+                                               "note", "regime", "user_share", "overage_gb",
+                                               "swap_seconds")
                          if k in detail}})
     return {
         "jobs": len(parts),

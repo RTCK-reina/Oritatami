@@ -252,12 +252,18 @@ export interface QueueEtaItem {
     status: string;
     kind: string;
     seconds: number | null;
-    /** cpu = measured from what the run has computed; baseline = from history; unknown = no honest answer */
-    basis?: 'cpu' | 'baseline' | 'unknown';
-    /** 0–1, from CPU seconds consumed against what this size costs */
+    /** swap = history plus the predicted paging cost; baseline = history alone; unknown = no honest answer */
+    basis?: 'swap' | 'baseline' | 'unknown';
     progress?: number | null;
-    /** CPU seconds per wall second right now; collapses when the machine swaps */
+    /** CPU seconds per wall second; falls with job size even when healthy, so not a health signal */
     efficiency?: number | null;
+    /** share of CPU time spent computing rather than moving pages — this IS the health signal */
+    user_share?: number | null;
+    regime?: 'resident' | 'paging' | 'unknown';
+    /** GB the run is expected to need beyond what can stay resident */
+    overage_gb?: number;
+    /** seconds attributed to paging that overage in and out */
+    swap_seconds?: number;
     overrun?: boolean;
     note?: string;
 }

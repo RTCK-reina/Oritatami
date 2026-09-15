@@ -18,6 +18,9 @@ from typing import Any
 
 from .config import get_settings
 
+# The same headroom the Metal limit leaves for macOS; one number, one definition.
+from .gpu import HEADROOM_GB
+
 # Defaults from jobs measured on an M5 Pro (24 GB), per phase:
 #   76-residue monomer:            start-up+preprocess 4 s, MSA 2 s, structure 30 s
 #   303-token complex with ligand: start-up+preprocess 4 s, MSA 5 s, structure 68 s, affinity 92 s
@@ -196,6 +199,11 @@ def estimate(spec: dict[str, Any], needs_msa_search: bool, history: list[dict[st
     spread = 1.35 if len(points) >= 3 else 1.8
     peak, mem_basis, mem_samples = _peak_memory(tokens, affinity, history)
     total = memory_gb()
+    # The structure fit is built from runs that fit in memory, so it describes a job at full
+    # speed. If this one is not going to fit, the paging it will do is the larger half of the
+    # answer and belongs in the same number — not in a warning beside it.
+    penalty = swap_penalty(peak, params, total)
+    seconds += penalty["seconds"]
     level = "ok"
     if total:
         # Past physical memory the machine does not fail, it slows by about 300x (measured:
@@ -225,111 +233,143 @@ def estimate(spec: dict[str, Any], needs_msa_search: bool, history: list[dict[st
         "seconds": round(seconds),
         "low": round(seconds / spread),
         "high": round(seconds * spread),
-        "breakdown": {"startup": round(overhead), "msa": round(msa), "structure": round(structure), "affinity": round(aff)},
+        "breakdown": {"startup": round(overhead), "msa": round(msa), "structure": round(structure),
+                      "affinity": round(aff), "paging": round(penalty["seconds"])},
         "basis": "history" if len(points) >= 2 else "default",
         "samples": len(points),
         "tokens": tokens,
         "needs_msa_search": needs_msa_search,
         "memory": {"peak_gb": round(peak, 1), "total_gb": round(total, 1) if total else None,
                    "level": level, "basis": mem_basis, "samples": mem_samples,
-                   "beyond_physical": beyond_physical, "applecare": get_settings().applecare},
+                   "beyond_physical": beyond_physical, "applecare": get_settings().applecare,
+                   "capacity_gb": penalty["capacity_gb"], "overage_gb": penalty["overage_gb"],
+                   "paging_sec": round(penalty["seconds"]), "passes": penalty["passes"],
+                   "traffic_tb": penalty["traffic_tb"]},
     }
 
 
+# ------------------------------------------------------------------ past physical memory
+# Boltz does not fail when the working set stops fitting — it pages, and the run keeps going at
+# the speed of the SSD instead of the speed of memory. Measured on this machine while a
+# 1,278-token prediction was in that state: 563,094 swap-ins and 497,311 swap-outs per 30 s at
+# 16 KB a page, so about 565 MB/s of traffic, against 97 GB/s of page traffic while resident.
+# The ratio is 170x, which is why a 40-minute job was still running after three and a half
+# hours.
+#
+# The cost is therefore (how much does not fit) x (how many times the run walks its working
+# set) / (how fast swap moves). The first two are the parts worth arguing about:
+#
+#   * what does not fit — the fitted peak minus what can stay resident, which is installed
+#     memory less the few GB macOS needs. Not the Metal working-set limit: that governs
+#     whether an allocation is refused, and what happened here was paging, not a refusal.
+#   * how many walks — anchored on that same run. 212 minutes at 565 MB/s is 7.2 TB of
+#     traffic; against a 25.6 GB overage that is 280 passes, with sampling_steps at 200 and
+#     recycling at 4. So one pass per diffusion step plus a fixed cost for the trunk.
+#
+# ONE observation stands behind PASSES_BASE. It is enough to turn "40 分" into "4 時間 20 分",
+# which is the difference that matters, and not enough to trust the second digit.
+SWAP_MB_PER_SEC = 565.0
+RESIDENT_MB_PER_SEC = 97.0 * 1024
+PASSES_BASE = 80
+# Below this share of user time the run is not computing, it is waiting on the kernel to move
+# pages. Measured: healthy runs sit at 0.86 (76 tokens), 0.73 (304) and 0.64 (608) — the share
+# falls with size because the GPU does more of the work — while the thrashing 1,278-token run
+# sat at 0.016. There is a factor of 40 between the two regimes, so the line can go anywhere
+# sensible between them.
+THRASH_USER_SHARE = 0.25
+
+
+def resident_capacity_gb(total_gb: float | None = None) -> float | None:
+    """How much of installed memory a prediction can actually keep resident."""
+    total = total_gb if total_gb is not None else memory_gb()
+    return max(1.0, total - HEADROOM_GB) if total else None
+
+
+def swap_penalty(peak_gb: float, params: dict[str, Any],
+                 total_gb: float | None = None) -> dict[str, Any]:
+    """Seconds this run loses to paging, given the memory it is expected to need."""
+    capacity = resident_capacity_gb(total_gb)
+    if capacity is None or peak_gb <= capacity:
+        return {"overage_gb": 0.0, "seconds": 0.0, "passes": 0, "traffic_tb": 0.0,
+                "capacity_gb": capacity}
+    overage = peak_gb - capacity
+    passes = int(max(1, int(params.get("diffusion_samples", 1)))
+                 * max(10, int(params.get("sampling_steps", 200))) + PASSES_BASE)
+    traffic_mb = passes * overage * 1024.0
+    # The difference between the two speeds, as asked: the pages would have been read anyway,
+    # just 170x faster. Keeping the resident term in makes the formula say what it means, even
+    # though it changes the answer by well under a percent.
+    seconds = traffic_mb / SWAP_MB_PER_SEC - traffic_mb / RESIDENT_MB_PER_SEC
+    return {"overage_gb": round(overage, 1), "seconds": round(seconds), "passes": passes,
+            "traffic_tb": round(traffic_mb / 1024**2, 2), "capacity_gb": round(capacity, 1)}
+
+
 # ------------------------------------------------------------------ live: what is left
-# A prediction reports no progress from inside the diffusion phase — Boltz's own bar sits at
-# 1/1 from start to finish — so "how much longer" cannot be read off the run. What can be read
-# is how much compute it has consumed, and that is enough, because the arithmetic a prediction
-# has to do does not change when the machine gets slow. Only the waiting does.
+# A prediction reports no progress from inside the diffusion phase, and the obvious substitute
+# does not work either: CPU time is not a progress meter here, because the GPU does the
+# arithmetic. Measured across three calibration runs on this machine — 76, 304 and 608 tokens —
+# wall time went 36 s -> 116 s -> 389 s while CPU time went 20 s -> 27 s -> 40 s. The CPU is
+# nearly a constant, so "CPU consumed / CPU expected" would read 50 % a minute in and then
+# crawl.
 #
-# So the estimate is split in two:
-#
-#   * how many CPU seconds this size costs — stable, fitted from finished runs
-#   * how many CPU seconds this run is getting per wall second — measured now, every 3 s
-#
-# Wall time remaining is the first divided by the second. When a job falls into swap the
-# second collapses (measured: 4.6 CPU seconds per 30 wall seconds on a 1,278-token run, 98 %
-# of it system time) and the estimate grows to match, instead of being clamped to a floor and
-# claiming the job is nearly done.
-MIN_EFFICIENCY = 0.02          # below this the arithmetic explodes; report "unknown" instead
-EFFICIENCY_HEALTHY = 0.5       # a resident run keeps at least half a core busy on this machine
-
-
-def _cpu_points(history: list[dict[str, Any]]) -> list[tuple[float, float]]:
-    points = []
-    for job in history:
-        res = job.get("result") or {}
-        nspec = res.get("normalized_spec") or {}
-        used = res.get("cpu_seconds")
-        t = res.get("token_estimate") or nspec.get("token_estimate")
-        if not used or not t:
-            continue
-        points.append((work_units(int(t), nspec.get("params") or {}), float(used)))
-    return points
-
-
-def cpu_cost(spec: dict[str, Any], history: list[dict[str, Any]]) -> tuple[float | None, int]:
-    """CPU seconds this prediction should cost, and how many runs that came from."""
-    points = _cpu_points(history)
-    if len(points) < 2:
-        return None, len(points)
-    load, k = _fit_structure(points)
-    work = work_units(int(spec["token_estimate"]), spec["params"])
-    return max(1.0, load + k * work), len(points)
-
-
-def normal_efficiency(history: list[dict[str, Any]]) -> float | None:
-    """CPU seconds per wall second for runs that stayed inside physical memory."""
-    total = memory_gb()
-    values = []
-    for job in history:
-        res = job.get("result") or {}
-        eff, peak = res.get("cpu_efficiency"), res.get("peak_memory_gb")
-        if not eff or eff <= 0:
-            continue
-        if total and peak and peak > total:
-            continue                      # a run that swapped is not the normal case
-        values.append(float(eff))
-    return statistics.median(values) if values else None
+# What CPU time does say, unambiguously, is which regime the run is in (see THRASH_USER_SHARE).
+# So the remaining time comes from the wall-clock model, and the live measurement decides
+# whether the paging term belongs in it — using the footprint the run has actually reached
+# rather than the one that was predicted for it.
+def regime(live: dict[str, Any] | None) -> str:
+    """"resident" | "paging" | "unknown", from the live sample."""
+    live = live or {}
+    share = live.get("user_share")
+    footprint = live.get("footprint_gb")
+    total = live.get("total_gb")
+    if isinstance(share, (int, float)) and (live.get("cpu_sec") or 0) >= 5:
+        return "paging" if share < THRASH_USER_SHARE else "resident"
+    capacity = resident_capacity_gb(total)
+    if isinstance(footprint, (int, float)) and capacity:
+        return "paging" if footprint > capacity else "resident"
+    return "unknown"
 
 
 def remaining(spec: dict[str, Any], elapsed: float, baseline: float,
               live: dict[str, Any] | None, history: list[dict[str, Any]]) -> dict[str, Any]:
     """How much longer a running prediction needs, and on what grounds.
 
-    ``seconds`` is None when there is no honest answer. That is the point: a job past its
-    baseline with no compute measurement behind it is a job nobody can time, and saying so is
-    more useful than a number that keeps resetting to a floor.
+    ``seconds`` is None when there is no honest answer — a job that has already run past
+    everything the model can account for is a job nobody can time, and saying so is more use
+    than a number that keeps resetting.
     """
     live = live or {}
-    eff = live.get("efficiency")
-    cpu_done = live.get("cpu_sec") or 0.0
-    expected, samples = cpu_cost(spec, history)
+    state = regime(live)
+    peak = live.get("peak_gb") or live.get("footprint_gb")
+    penalty = (swap_penalty(float(peak), spec["params"], live.get("total_gb"))
+               if peak else {"overage_gb": 0.0, "seconds": 0.0, "passes": 0, "traffic_tb": 0.0,
+                             "capacity_gb": resident_capacity_gb(live.get("total_gb"))})
+    total = baseline + penalty["seconds"]
     out: dict[str, Any] = {
-        "seconds": None, "basis": "unknown", "progress": None,
-        "efficiency": eff, "cpu_seconds": cpu_done or None,
-        "cpu_expected": round(expected) if expected else None,
-        "overrun": elapsed > baseline, "samples": samples, "note": "",
+        "seconds": None,
+        "basis": "unknown",
+        "regime": state,
+        "progress": None,
+        "user_share": live.get("user_share"),
+        "efficiency": live.get("efficiency"),
+        "cpu_seconds": live.get("cpu_sec"),
+        "overage_gb": penalty["overage_gb"],
+        "swap_seconds": penalty["seconds"],
+        "total_estimate": round(total),
+        "overrun": elapsed > total,
+        "note": "",
     }
-
-    if expected and cpu_done > 0 and isinstance(eff, (int, float)) and eff >= MIN_EFFICIENCY:
-        progress = cpu_done / expected
-        out["progress"] = round(min(progress, 0.999), 3)
-        out["seconds"] = round(max(0.0, expected - cpu_done) / eff)
-        out["basis"] = "cpu"
-        normal = normal_efficiency(history) or EFFICIENCY_HEALTHY
-        if eff < normal / 3:
-            out["note"] = (f"実効速度が通常の {eff / normal:.0%} まで落ちています"
-                           "（メモリが足りず、スワップ待ちになっている可能性が高い）")
+    if elapsed <= total:
+        out["seconds"] = round(total - elapsed)
+        out["basis"] = "swap" if penalty["seconds"] else "baseline"
+        out["progress"] = round(min(0.999, elapsed / total), 3) if total > 0 else None
+        if penalty["seconds"]:
+            out["note"] = (f"物理メモリを {penalty['overage_gb']} GB 超過する見込みで、"
+                           f"その分のページングに約 {penalty['seconds'] / 60:.0f} 分かかります")
         return out
-
-    if isinstance(eff, (int, float)) and 0 <= eff < MIN_EFFICIENCY:
-        out["note"] = "ほとんど計算が進んでいません（スワップ待ち）。残り時間は推定できません"
-        return out
-    if not out["overrun"]:
-        out["seconds"] = round(max(0.0, baseline - elapsed))
-        out["basis"] = "baseline"
-        return out
-    out["note"] = (f"推定 {baseline / 60:.0f} 分に対して実測 {elapsed / 60:.0f} 分。"
+    out["note"] = (f"スワップ込みの推定 {total / 60:.0f} 分に対して実測 {elapsed / 60:.0f} 分。"
                    "この規模の完走実績がないため、残りを推定できません")
+    if state == "paging":
+        out["note"] += "（user 時間の割合が %.1f%% しかなく、計算ではなくページングに使われています）" % (
+            100 * (live.get("user_share") or 0))
     return out

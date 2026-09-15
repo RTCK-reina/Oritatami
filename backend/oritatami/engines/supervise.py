@@ -318,9 +318,12 @@ def main(argv: list[str]) -> int:
             # What the run actually cost in compute, as opposed to how long it took. The two
             # are the same thing only while the job fits in memory, and the estimate needs
             # the one that does not change when the machine starts swapping.
+            user = sum(u for u, _ in cpu.values())
             try:
                 with open(CPU_NAME, "w", encoding="utf-8") as fh:
-                    fh.write(f"{used:.1f}\n")
+                    # total and user, because the split is the part that says which regime the
+                    # run was in: the arithmetic is user time, the paging is system time.
+                    fh.write(f"{used:.1f} {user:.1f}\n")
             except OSError:
                 pass
         if not peak:
