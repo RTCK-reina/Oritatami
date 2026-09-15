@@ -1,0 +1,18 @@
+.venv/
+__pycache__/
+*.pyc
+.dev-logs/
+frontend/node_modules/
+frontend/dist/
+build/
+dist/
+*.egg-info/
+.remember/
+.DS_Store
+.pytest_cache/
+.ruff_cache/
+.cache/
+Native/.build/
+Claude outputs/
+peak_memory.txt
+_loop/
