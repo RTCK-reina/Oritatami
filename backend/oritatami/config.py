@@ -420,9 +420,13 @@ def update_settings(patch: dict[str, Any]) -> Settings:
             raise ValueError("計算デバイスは 自動 / GPU (MPS) / CPU のいずれかです")
         if new.esm_device not in ("auto", "mps", "cpu"):
             raise ValueError("ESM-2 のデバイスは 自動 / GPU (MPS) / CPU のいずれかです")
-        for key in ("diffusion_samples", "recycling_steps", "sampling_steps"):
-            if getattr(new, key) < 1:
-                raise ValueError(f"{label(key)} は 1 以上にしてください")
+        # Same caps normalize_spec enforces on a submission: a default outside them would
+        # make every workbench-built spec fail validation after the settings saved cleanly.
+        _BOUNDS = {"diffusion_samples": (1, 10), "recycling_steps": (1, 10),
+                   "sampling_steps": (10, 500)}
+        for key, (lo, hi) in _BOUNDS.items():
+            if not lo <= getattr(new, key) <= hi:
+                raise ValueError(f"{label(key)} は {lo}〜{hi} にしてください")
         if new.autopilot_max_variants_per_job < 0:
             raise ValueError("1ジョブあたりの変異体数は 0 以上にしてください")
         if new.autopilot_daily_budget < 0:

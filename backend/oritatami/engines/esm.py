@@ -172,10 +172,10 @@ def _masked_log_probs(seq: str, positions: list[int], batch_size: int = 8,
     if not _M.lock.acquire(timeout=-1 if wait is None else wait):
         raise EsmBusy("ESM-2 は別の計算 (変異スキャンなど) で使用中です")
     try:
+        # The lock stays held across load and compute: releasing it between the two let an
+        # idle-unload free the model this call had just loaded and the assert below turned
+        # into a 500. RLock, so load() acquiring it again is safe.
         _M.load()
-    finally:
-        _M.lock.release()
-    with _M.lock:
         model, tok, device = _M.model, _M.tokenizer, _M.device
         assert model is not None and tok is not None
         out: dict[int, list[float]] = {}
@@ -201,6 +201,8 @@ def _masked_log_probs(seq: str, positions: list[int], batch_size: int = 8,
                     if progress:
                         progress(done / len(positions))
         _M.last_used = time.time()
+    finally:
+        _M.lock.release()
     return out
 
 

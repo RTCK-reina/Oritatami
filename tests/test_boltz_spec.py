@@ -57,6 +57,26 @@ def test_invalid_smiles_is_reported():
         boltz.normalize_spec(s)
 
 
+def test_malformed_constraints_are_input_errors_not_crashes():
+    """A bad constraint shape used to surface as a KeyError→404 or TypeError→500."""
+    s = spec(constraints=[{"type": "contact"}])
+    with pytest.raises(ValueError, match="チェーン ID"):
+        boltz.normalize_spec(s)
+    s = spec(constraints=[{"type": "pocket", "binder": "C", "contacts": [["A"]]}])
+    with pytest.raises(ValueError, match="チェーン ID"):
+        boltz.normalize_spec(s)
+    s = spec(constraints=[{"type": "contact", "token1": ["A", "x"], "token2": ["B", 1]}])
+    with pytest.raises(ValueError, match="チェーン ID"):
+        boltz.normalize_spec(s)
+    s = spec(constraints=["not-a-dict"])
+    with pytest.raises(ValueError, match="オブジェクト"):
+        boltz.normalize_spec(s)
+    n = boltz.normalize_spec(spec(constraints=[{"type": "contact", "token1": ["A", 3],
+                                              "token2": ["C", 5], "max_distance": 8.0}]))
+    assert n["constraints"] == [{"type": "contact", "token1": ["A", 3], "token2": ["C", 5],
+                                 "max_distance": 8.0, "force": False}]
+
+
 def test_build_yaml_shape():
     n = boltz.normalize_spec(spec(affinity_binder="C"))
     n["components"][0]["msa"] = "single"

@@ -37,7 +37,7 @@ def work_units(tokens: int, params: dict[str, Any]) -> float:
     size = (max(10, tokens) / 100.0) ** 2
     samples = 0.6 + 0.4 * max(1, int(params.get("diffusion_samples", 1)))
     steps = 0.4 + 0.6 * (max(10, int(params.get("sampling_steps", 200))) / 200.0)
-    recycle = 0.5 + 0.5 * ((max(1, int(params.get("recycling_steps", 3))) + 1) / 4.0)
+    recycle = 0.5 + 0.5 * ((max(1, int(params.get("recycling_steps", 4))) + 1) / 4.0)
     return size * samples * steps * recycle
 
 

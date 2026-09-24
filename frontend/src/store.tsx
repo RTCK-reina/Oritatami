@@ -35,7 +35,7 @@ function sameInput(a: SpecOut, b: SpecOut): boolean {
         c.chains.length, c.msa ?? '', !!c.cyclic]));
     const params = (s: SpecOut) => {
         const p = s.params ?? {};
-        return JSON.stringify([p.diffusion_samples ?? 1, p.recycling_steps ?? 3, p.sampling_steps ?? 200, !!p.use_potentials,
+        return JSON.stringify([p.diffusion_samples ?? 1, p.recycling_steps ?? 4, p.sampling_steps ?? 200, !!p.use_potentials,
             p.seed ?? null, p.accelerator ?? 'auto']);
     };
     return comps(a) === comps(b) && params(a) === params(b) && (a.affinity_binder ?? null) === (b.affinity_binder ?? null);

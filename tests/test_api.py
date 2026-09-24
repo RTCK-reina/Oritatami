@@ -306,6 +306,19 @@ def test_a_settings_change_is_logged(caplog):
     assert any("False" in m for m in messages), messages
 
 
+def test_prediction_defaults_share_the_spec_bounds():
+    """A default outside the submit-time caps saved cleanly, then every prediction was
+    rejected at the workbench with a contradiction the settings dialog itself created."""
+    from oritatami.config import update_settings
+
+    for key, bad in (("diffusion_samples", 11), ("recycling_steps", 0),
+                     ("sampling_steps", 5), ("sampling_steps", 501)):
+        with pytest.raises(ValueError):
+            update_settings({key: bad})
+    s = update_settings({"diffusion_samples": 2, "recycling_steps": 4, "sampling_steps": 100})
+    assert s.diffusion_samples == 2 and s.sampling_steps == 100
+
+
 def test_a_scan_of_an_older_sequence_does_not_offer_dead_substitutions():
     """35 of 50 proposals in a live run were rejected, all of them because the reused
     ESM-2 scan still listed E24A for a chain whose 24 was already A."""

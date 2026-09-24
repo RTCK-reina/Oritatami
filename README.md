@@ -19,7 +19,7 @@ runs locally — only MSA search and database lookups leave the machine. Japanes
 ## 動作環境
 
 - macOS 13 以降、Apple Silicon。動作確認は M5 Pro / メモリ 24 GB (メモリが多いほど大きな複合体を扱えます)
-- 空きディスク 20 GB 程度 (Boltz-2 の重み約 6 GB、ESM-2 約 2.5 GB、LLM 約 7 GB)
+- 空きディスク 20 GB 程度 (Boltz-2 の重み約 6 GB、ESM-2 約 2.5 GB、LLM 約 6 GB)
 - インターネット接続 (初回のモデル取得、MSA 検索、データベース検索)
 
 ## インストール
@@ -158,21 +158,35 @@ cd frontend && npm run dev              # 開発サーバー (API は 127.0.0.1:
 | GET | `/jobs/changes?rev=&timeout=` | 変更があるまで待つ long-poll `{rev, changed}` |
 | GET / PATCH / DELETE | `/jobs/{id}` | 詳細 / 名前・お気に入り / 削除 |
 | POST | `/jobs/{id}/cancel` | キャンセル |
+| POST | `/jobs/{id}/reorder` | `{action: top/up/down/bottom}` で待機順の変更 |
+| POST | `/jobs/queue/cancel_all` | 待機ジョブの一括キャンセル (`include_running` で実行中も) |
 | POST | `/jobs/{id}/retry` | `{msa?: "single", accelerator?, diffusion_samples?, new_seed?}` で再実行 |
+| GET | `/jobs/eta` | キュー全体の残り時間・終了見込み `{seconds, complete, finish_at, items}` |
 | GET | `/jobs/{id}/export.zip` | 書き出し (添付ファイル) |
 | POST | `/jobs/{id}/export` | ダウンロードフォルダへ書き出して Finder で表示 |
 | GET | `/jobs/{id}/structure.pdb?model=` | PDB 形式 |
 | GET | `/jobs/{id}/log` / `/jobs/{id}/files/{path}` | ログ / ジョブ内ファイル |
+| POST | `/jobs/{id}/reveal` | ジョブフォルダを Finder で開く |
+| GET | `/jobs/{id}/function_risk` / `/jobs/{id}/protected_suggest` | 結果の健全性検査 / 変異禁止残基の提案 |
+| GET | `/jobs/{id}/autopilot` | 自律ループの解析結果 |
+| GET | `/leaderboard` / `/history` | 全予測のスコア順・系統 / 探索の実績統計 |
+| GET | `/autopilot/status` | 自律ループの受け付け状況・予算・残量 |
 | POST | `/compare` | 2 構造の重ね合わせ `{rmsd, matched_ca, deviations, url}` |
 | POST | `/assistant/ask` | LLM への依頼 (`mode`: chat / mutations / complex / design / explain) |
 | GET / DELETE | `/assistant/threads[/{id}]` | 会話履歴 |
+| GET | `/llm/calls` · POST `/llm/calls/export` | LLM やり取りの履歴・JSONL 書き出し |
+| POST | `/sequence/validate`, `/sequence/mutate`, `/sequence/diff` | 配列の検証・変異適用・差分 |
 | GET / POST / DELETE | `/library[/{id}]` | 保存した分子・作業台 |
 | GET | `/uniprot/search`, `/uniprot/{acc}`, `/pdb/search` | データベース検索 |
+| GET / DELETE | `/searches` | データベース検索の履歴 |
 | POST | `/import/pdb`, `/import/afdb`, `/import/upload` | 構造の取り込み |
+| GET | `/files/imports/{name}` | 取り込んだ構造ファイル |
 | POST / GET | `/chem/describe`, `/chem/pubchem`, `/chem/ccd/{code}` | 低分子の情報・構造式 SVG |
 | GET / POST | `/storage`, `/storage/cleanup` | 使用容量 / 不要ファイルの削除 |
+| GET / POST | `/system/gpu`, `/system/memory`, `/system/memory/release`, `/system/ssd` | GPU 上限・メモリ推移・SSD 摩耗 |
+| GET / POST | `/pdb_watcher/config`, `/pdb_watcher/poll_now` | 新着 PDB の自動予測 |
 | POST | `/files/save`, `/notify` | 画像の保存 / macOS 通知 |
-| GET / POST | `/llm/status`, `/llm/start`, `/llm/pull` | Ollama の状態・起動・モデル取得 |
+| GET / POST | `/llm/status`, `/llm/start`, `/llm/pull`, `/llm/install` | Ollama の状態・起動・モデル取得 |
 
 予測の入力 (`spec`) の形:
 
@@ -185,7 +199,7 @@ cd frontend && npm run dev              # 開発サーバー (API は 127.0.0.1:
     {"type": "ligand", "chains": ["C"], "label": "AZM", "smiles": "CC(=O)Nc1nnc(s1)S(N)(=O)=O"}
   ],
   "affinity_binder": "C",
-  "params": {"diffusion_samples": 1, "recycling_steps": 3, "sampling_steps": 200, "use_potentials": false, "seed": null, "accelerator": "auto"}
+  "params": {"diffusion_samples": 1, "recycling_steps": 4, "sampling_steps": 200, "use_potentials": false, "seed": null, "accelerator": "auto"}
 }
 ```
 

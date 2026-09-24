@@ -31,7 +31,8 @@ def _job(tokens, peak_gb, seconds=60.0, method="footprint"):
                                            "token_estimate": tokens}}}
 
 
-def test_memory_is_estimated_and_graded():
+def test_memory_is_estimated_and_graded(monkeypatch):
+    monkeypatch.setattr(estimate, "memory_gb", lambda: 24.0)
     out = estimate.estimate(_spec(76), needs_msa_search=False, history=[])
     assert out["memory"]["peak_gb"] > 0
     assert out["memory"]["level"] in ("ok", "caution", "danger")
@@ -119,8 +120,11 @@ def test_the_default_model_matches_what_this_machine_actually_did():
         assert abs(out["memory"]["peak_gb"] - measured) < tolerance, (tokens, out["memory"])
 
 
-def test_the_grades_land_where_the_measurements_do():
+def test_the_grades_land_where_the_measurements_do(monkeypatch):
     """609 tokens finished in five minutes; 1,198 did not finish in eighty. The line is between."""
+    # The grades are fractions of installed memory, so pin the machine the measurements
+    # were taken on — on a smaller machine the same peaks legitimately grade higher.
+    monkeypatch.setattr(estimate, "memory_gb", lambda: 24.0)
     ok = estimate.estimate(_spec(609), needs_msa_search=False, history=[])["memory"]
     bad = estimate.estimate(_spec(1198), needs_msa_search=False, history=[])["memory"]
     assert ok["level"] in ("ok", "caution"), "5 分で終わる仕事を danger にしない"

@@ -164,8 +164,14 @@ async def _not_found(_: Request, exc: Exception) -> JSONResponse:
 
 
 @app.exception_handler(esm.EsmUnavailable)
+@app.exception_handler(esm.EsmBusy)
 async def _esm_missing(_: Request, exc: Exception) -> JSONResponse:
     return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+
+@app.exception_handler(PermissionError)
+async def _forbidden(_: Request, exc: PermissionError) -> JSONResponse:
+    return JSONResponse(status_code=403, content={"detail": str(exc)})
 
 
 @app.exception_handler(Exception)
@@ -608,6 +614,7 @@ def queue_eta() -> dict[str, Any]:
                        if j["status"] in ("queued", "running")),
                       key=lambda j: j["created_at"]):
         seconds: float | None = None
+        baseline: float | None = None
         detail: dict[str, Any] = {}
         normalized = None
         if job["kind"] == "predict":
@@ -617,7 +624,11 @@ def queue_eta() -> dict[str, Any]:
                              for c in normalized["components"])
                 reusable = (server and get_settings().reuse_msa_for_variants
                             and boltz.find_reusable_msa(normalized) is not None)
-                seconds = float(estimate.estimate(normalized, server and not reusable, history)["seconds"])
+                est = estimate.estimate(normalized, server and not reusable, history)
+                seconds = float(est["seconds"])
+                # ``remaining`` adds the paging the live footprint implies on top of its
+                # baseline, so the predicted paging must not be inside the baseline too.
+                baseline = seconds - float((est.get("breakdown") or {}).get("paging") or 0.0)
             except Exception:  # a spec we cannot normalise still occupies the queue
                 seconds = None
         else:
@@ -629,7 +640,7 @@ def queue_eta() -> dict[str, Any]:
             # which is the only thing that stays true once the machine starts swapping.
             live = state.jobs.live(job["id"]) or {}
             started = live.get("started_at") or job.get("started_at") or now
-            detail = estimate.remaining(normalized, now - started, seconds or 0.0, live, history)
+            detail = estimate.remaining(normalized, now - started, baseline or 0.0, live, history)
             seconds = detail["seconds"]
         if seconds is None:
             unknown += 1
