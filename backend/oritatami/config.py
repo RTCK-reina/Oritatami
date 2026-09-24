@@ -97,7 +97,7 @@ class Settings:
     # Empty = find it: the copy inside the .app, then the one this app downloaded, then
     # whatever is installed on the machine.
     ollama_bin: str = ""
-    llm_model: str = "qwen3.5:9b"
+    llm_model: str = "gemma3:4b"
     # Optional second model, used only when the person presses じっくり答える. Empty = the
     # button stays off. It is never used by the autopilot: a slower model there would cut
     # the number of variants the loop gets through, for prose nobody reads.

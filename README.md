@@ -9,7 +9,7 @@ runs locally — only MSA search and database lookups leave the machine. Japanes
 
 - **構造予測**: Boltz-2 (タンパク質・DNA/RNA・薬などの低分子・金属イオンの複合体、結合親和性)
 - **変異の手がかり**: ESM-2 による全 1 残基置換のスコア (変異スキャン)、配列の「天然らしさ」の改良
-- **AI アシスタント**: ローカルの LLM (llama.cpp、既定は `qwen3.5:9b`) が変異・結合相手・新しい配列を提案。提案は配列との照合、UniProt / PubChem / PDB 化学辞書、RDKit、ESM-2 で検証してから表示
+- **AI アシスタント**: ローカルの LLM (llama.cpp、既定は `gemma3:4b`) が変異・結合相手・新しい配列を提案。提案は配列との照合、UniProt / PubChem / PDB 化学辞書、RDKit、ESM-2 で検証してから表示
 - **3D ビューア**: Mol* を内蔵。pLDDT 色分け、表面・原子表示、ポケット、変異残基の強調、2 構造の重ね合わせ (RMSD)、4K 画像
 
 計算は手元の Mac で行います。外部に送られるのは、MSA 検索 (ColabFold 公開サーバー) に使うタンパク質配列と、UniProt・RCSB PDB・AlphaFold DB・PubChem への検索語だけです。
@@ -19,7 +19,7 @@ runs locally — only MSA search and database lookups leave the machine. Japanes
 ## 動作環境
 
 - macOS 13 以降、Apple Silicon。動作確認は M5 Pro / メモリ 24 GB (メモリが多いほど大きな複合体を扱えます)
-- 空きディスク 20 GB 程度 (Boltz-2 の重み約 6 GB、ESM-2 約 2.5 GB、LLM 約 6 GB)
+- 空きディスク 20 GB 程度 (Boltz-2 の重み約 6 GB、ESM-2 約 2.5 GB、LLM 約 2.5 GB)
 - インターネット接続 (初回のモデル取得、MSA 検索、データベース検索)
 
 ## インストール
@@ -34,7 +34,7 @@ cd Oritatami
 - Python 3.12 の仮想環境 (`.venv`) を uv で作り、Boltz-2・PyTorch・ESM-2 などを入れる
 - 画面 (フロントエンド) をビルドする (Node.js がなければ Homebrew で入れるか尋ねます)
 - Boltz-2 の重みを先にダウンロードするか尋ねる (いいえなら初回の予測時に自動取得)
-- llama.cpp と LLM モデル (`qwen3.5:9b`) を入れるか尋ねる
+- llama.cpp と LLM モデル (`gemma3:4b`) を入れるか尋ねる
 - `~/Applications/Oritatami.app` を作るか尋ねる
 
 すべて「はい」で進めるときは `./scripts/setup.sh --yes`、テストや lint の道具も入れるときは `--dev` を付けます。

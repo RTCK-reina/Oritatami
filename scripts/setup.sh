@@ -117,7 +117,7 @@ if ! have llama-server; then
     warn "llama-server がありません。アプリの設定画面からも取得できます (予測・変異スコアは使えます)"
   fi
 fi
-model="$(.venv/bin/python -c 'from oritatami.config import get_settings; print(get_settings().llm_model)' 2>/dev/null || echo qwen3.5:9b)"
+model="$(.venv/bin/python -c 'from oritatami.config import get_settings; print(get_settings().llm_model)' 2>/dev/null || echo gemma3:4b)"
 if .venv/bin/python -c 'import sys; from oritatami import llm; sys.exit(0 if llm.resolve_model(sys.argv[1]) else 1)' "$model" 2>/dev/null; then
   ok "LLM モデル $model: ダウンロード済み"
 elif ask "LLM モデル $model (数 GB) をダウンロードしますか？"; then

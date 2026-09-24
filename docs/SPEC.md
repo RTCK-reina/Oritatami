@@ -784,7 +784,7 @@ GGUF ヘッダを直接読んで `capabilities`（`tokenizer.chat_template` 中�
 
 | キー | 既定 | 意味 |
 | --- | --- | --- |
-| `llm_model` | `qwen3.5:9b` | 常用モデル |
+| `llm_model` | `gemma3:4b` | 常用モデル |
 | `llm_model_heavy` | `""` | 「じっくり答える」用。空なら機能を出さない。自律ループでは使わない |
 | `llm_log_limit` | 5000 | LLM 呼び出しログの保持件数。0 で無効 |
 | `esm_model` | `facebook/esm2_t33_650M_UR50D` | 変異スコアリングのモデル |

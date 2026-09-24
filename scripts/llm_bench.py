@@ -71,7 +71,7 @@ def run_case(db: Database, mode: str, message: str, check) -> dict:
 
 
 def main() -> int:
-    models = sys.argv[1:] or ["qwen3.5:9b"]
+    models = sys.argv[1:] or ["gemma3:4b"]
     out_path = Path(__file__).resolve().parents[1] / "bench_results.json"
     results: dict[str, list[dict]] = {}
     if out_path.exists():

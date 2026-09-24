@@ -7,7 +7,7 @@ import { uiEvents } from '../uiEvents';
 import { SetupStatus } from './SetupStatus';
 import { Button, Field, Icon, Modal, Spinner } from './ui';
 
-const SUGGESTED = ['qwen3.5:9b', 'qwen3.5:4b', 'qwen3.5:2b', 'qwen3.5:27b', 'gemma3:4b', 'gemma3:12b', 'gemma3:27b'];
+const SUGGESTED = ['gemma3:4b', 'gemma3:12b', 'gemma3:27b', 'qwen3:8b', 'qwen3.5:9b', 'qwen3.5:4b', 'qwen3.5:2b', 'qwen3.5:27b'];
 
 const SECTIONS = [
     { id: 'status', label: '準備状況', icon: 'check' },
@@ -42,7 +42,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
     const [savedCfg, setSavedCfg] = useState<PdbWatcherConfig | null>(null);
     const [llm, setLlm] = useState<LlmStatus | null>(null);
     const [saving, setSaving] = useState(false);
-    const [pullModel, setPullModel] = useState('qwen3.5:9b');
+    const [pullModel, setPullModel] = useState('gemma3:4b');
 
     useEffect(() => {
         api.settings().then(v => { setS(v); setSaved(v); }).catch(e => toast('error', errorMessage(e)));
@@ -131,8 +131,9 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                             <Field label="使うモデル" hint={<>
                                 予測の直前に LLM はメモリから解放されるので、Boltz とメモリを奪い合うことはありません。
                                 <More>
-                                    効くのは解析中の LLM と ESM-2 の同居分で、qwen3.5:9b は実測 5.9 GB です。
-                                    24 GB なら 14B 級まで載りますが、生成速度がそのまま解析時間になります (実測 80〜105 文字/秒)。
+                                    効くのは解析中の LLM と ESM-2 の同居分で、既定の gemma3:4b はファイル約 2.5 GB です。
+                                    実測ベンチでは 9B 級の約 3 倍速で採用率も同等でした。大きいモデルほど遅く、
+                                    生成速度がそのまま解析時間になります。
                                 </More>
                             </>}>
                                 <select value={s.llm_model} onChange={e => set('llm_model', e.target.value)}>
