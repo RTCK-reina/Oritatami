@@ -180,7 +180,7 @@ function TopBar({ themePref, onTheme }: { themePref: ThemePref; onTheme: (t: The
             </button>
             <button type="button" className={`pill ${health?.esm.loaded ? 'ok' : ''}`} onClick={() => uiEvents.emit('openSettings')} title={health?.esm.model}>ESM-2</button>
             <button type="button" className={`pill ${llmOk ? 'ok' : 'bad'}`} onClick={() => uiEvents.emit('openSettings')}
-                title={health?.llm.server ? (health.llm.model_available ? health.llm.model : `${health.llm.model} が未ダウンロード`) : 'Ollama 未起動 — クリックで準備状況'}>LLM</button>
+                title={health?.llm.server ? (health.llm.model_available ? health.llm.model : `${health.llm.model} が未ダウンロード`) : 'llama-server 未起動 — クリックで準備状況'}>LLM</button>
             <button type="button" className="icon-btn" onClick={() => onTheme(nextTheme)} aria-label="テーマ切り替え"
                 title={`テーマ: ${themePref === 'system' ? 'システムに合わせる' : themePref === 'light' ? 'ライト' : 'ダーク'} (クリックで切り替え)`}>
                 <Icon name={themePref === 'light' ? 'sun' : themePref === 'dark' ? 'moon' : 'layers'} />
@@ -354,7 +354,7 @@ function Layout() {
             { id: 'theme-dark', section: '表示', label: 'ダークテーマにする', keywords: 'theme dark 暗い', run: () => setThemePref('dark') },
             { id: 'theme-system', section: '表示', label: 'テーマをシステムに合わせる', keywords: 'theme system auto', run: () => setThemePref('system') },
             { id: 'layout-reset', section: '表示', label: 'パネルの配置を元に戻す', keywords: 'layout reset', run: () => { setSizes(DEFAULTS); setCollapsed({ left: false, right: false }); } },
-            { id: 'settings', section: 'アプリ', label: '設定・準備状況', shortcut: 'mod+,', keywords: 'settings preferences ollama model storage 設定 環境設定 準備', run: () => setDialog('settings') },
+            { id: 'settings', section: 'アプリ', label: '設定・準備状況', shortcut: 'mod+,', keywords: 'settings preferences ollama llama model storage 設定 環境設定 準備', run: () => setDialog('settings') },
             { id: 'help', section: 'アプリ', label: '使い方と用語', shortcut: '?', keywords: 'help glossary plddt ptm iptm pae ヘルプ 使い方 用語 わからない', run: () => setDialog('help') },
         ];
         EXAMPLES.forEach(ex => list.push({ id: `ex-${ex.id}`, section: '例を開く', label: `${ex.title} — ${ex.summary}`, keywords: `example ${ex.tags.join(' ')}`, run: () => void openExample(ex) }));

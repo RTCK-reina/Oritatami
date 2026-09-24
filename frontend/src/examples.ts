@@ -118,7 +118,7 @@ export const EXAMPLES: Example[] = [
         id: 'qwen-design',
         title: 'AI に設計させる',
         summary: 'LLM が新しい配列を提案',
-        detail: '「4 本のヘリックス束」を LLM に設計させ、ESM-2 の評価を見てから構造を予測します (Ollama が必要)。',
+        detail: '「4 本のヘリックス束」を LLM に設計させ、ESM-2 の評価を見てから構造を予測します (llama.cpp が必要)。',
         time: '1〜2 分',
         tags: ['設計', 'LLM'],
         action: { kind: 'assistant', mode: 'design', message: '4 本の α ヘリックスが束になった、60〜80 残基の小さな可溶性タンパク質' },

@@ -91,7 +91,7 @@ export function AssistantPanel({ onCollapse }: { onCollapse?: () => void }) {
         return () => window.clearInterval(t);
     }, [busy]);
 
-    // fetching Ollama takes a couple of minutes; the banner follows it
+    // fetching the runtime takes a couple of minutes; the banner follows it
     const installing = !!llm?.install?.active;
     useEffect(() => {
         if (!installing) return;
@@ -184,15 +184,15 @@ export function AssistantPanel({ onCollapse }: { onCollapse?: () => void }) {
             {llm && (!llm.server || !llm.model_available) && (
                 <div className="banner">
                     {llm.install?.active
-                        ? `Ollama を取得しています… ${llm.install.total ? Math.round(((llm.install.completed ?? 0) / llm.install.total) * 100) : 0}%`
+                        ? `llama-server を取得しています… ${llm.install.total ? Math.round(((llm.install.completed ?? 0) / llm.install.total) * 100) : 0}%`
                         : !llm.server
-                            ? (llm.binary ? 'Ollama が起動していません。' : `この Mac に Ollama がありません (アプリ用に約 ${llm.download_mb ?? 150} MB 取得します)。`)
+                            ? (llm.binary ? 'llama-server が起動していません。' : `この Mac に llama-server がありません (アプリ用に約 ${llm.download_mb ?? 150} MB 取得します)。`)
                             : `モデル ${llm.model} がまだありません。`}
                     {llm.install?.active ? null : !llm.server
                         ? <Button size="sm" onClick={() => void api.llmStart().then(r => {
-                            if (r.installing) toast('info', 'Ollama の取得を始めました (設定 → 準備状況 で進捗が見られます)');
+                            if (r.installing) toast('info', 'llama-server の取得を始めました (設定 → 準備状況 で進捗が見られます)');
                             return refreshHealth();
-                        }).catch(e => toast('error', errorMessage(e)))}>{llm.binary ? 'Ollama を起動' : '用意する'}</Button>
+                        }).catch(e => toast('error', errorMessage(e)))}>{llm.binary ? 'llama-server を起動' : '用意する'}</Button>
                         : <Button size="sm" onClick={() => void api.llmPull(llm.model).then(() => toast('info', 'ダウンロードを開始しました (設定画面で進捗を確認できます)')).catch(e => toast('error', errorMessage(e)))}>ダウンロード</Button>}
                 </div>
             )}

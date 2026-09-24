@@ -34,7 +34,7 @@
 （§6.3）。
 
 **1.5 外部ファイルシステムに依存しない。** リリースされる .app は Python ランタイム・依存ライブラリ・
-フロントエンドのビルド成果物・（同梱版は）Ollama バイナリを全て内部に持つ。開発リポジトリや外部の
+フロントエンドのビルド成果物・（同梱版は）llama-server バイナリを全て内部に持つ。開発リポジトリや外部の
 仮想環境を参照しない（§13）。
 
 ---
@@ -51,7 +51,7 @@ Oritatami.app
        └─ PDB ウォッチャー                   6 時間ごとに新着構造を検索
             │
             ├─(subprocess)→ supervise → boltz predict     構造予測
-            ├─(subprocess)→ ollama serve                  局所 LLM
+            ├─(subprocess)→ llama-server                  局所 LLM
             └─(subprocess)→ proteinmpnn                    逆折り畳み
 ```
 
@@ -89,7 +89,7 @@ ESM-2 のみアプリと同一プロセス内（torch + transformers）で動く
 | `gpu.py` | Metal のワーキングセット上限の読み書き |
 | `ssd.py` | SSD の摩耗量と、スワップを伴う実行の書き込み見積もり |
 | `system.py` | 機種情報、通知、ディスク使用量、自プロセスのメモリ推移 |
-| `llm.py` | Ollama の解決・起動・自己取得・モデル管理 |
+| `llm.py` | llama-server の解決・起動・自己取得・モデル管理 |
 | `sources.py` | UniProt / PDB / AFDB / PubChem の取得 |
 | `chem.py` | SMILES と CCD の検証、記述子 |
 | `exporter.py` | 結果一式の zip 書き出し |
@@ -590,7 +590,12 @@ Boltz は別プロセスなので終了時に全て返す。連続実行で太�
 
 ---
 
-## 10. 局所 LLM（Ollama）
+## 10. 局所 LLM（llama.cpp）
+
+アプリは推論を `llama-server` のプロセスとして自分で管理する（Ollama のような常駐
+デーモンは持たない）。1 プロセスが 1 モデルを面倒見るので、モデル切替は再起動、メモリ解放は
+プロセス終了。会話は OpenAI 互換の `POST /v1/chat/completions` で、構造化出力は
+`response_format` の JSON スキーマで強制する。
 
 ### 10.1 バイナリの解決順
 
@@ -600,28 +605,34 @@ Boltz は別プロセスなので終了時に全て返す。連続実行で太�
 4. マシンにインストールされているもの（PATH）
 
 `GET /api/llm/status` が `source` として `bundled | downloaded | system | none` のいずれかを返す。
-どれも無い場合は `POST /api/llm/install` で公式ビルド
-（`ollama-darwin.tgz`、約 153 MB）をバックグラウンドで取得する。システム全体には何もインストール
-せず、押されない限り何も始まらない。展開には `/usr/bin/tar` を使う（コード署名を保つため）。
+どれも無い場合は `POST /api/llm/install` で Ollama の公式アーカイブ
+（`ollama-darwin.tgz`、約 153 MB。`llama-server` とランナー一式が入っている）をバックグラウンドで
+取得する。システム全体には何もインストールせず、押されない限り何も始まらない。展開には
+`/usr/bin/tar` を使う（コード署名を保つため）。
 
-### 10.2 メモリの譲り渡し
+### 10.2 モデルの取得とメモリの譲り渡し
 
-予測ジョブが走っている間は `heavy` フラグが立ち、全ての LLM リクエストが `keep_alive=0` で発行
-される。回答し終えた時点でモデルがユニファイドメモリから降りるので、15 分の既定 keep_alive で
-居座ることがない。`unload_model()` は `/api/ps` が静かになるまで最大 15 秒待つ。
+モデルは平文の GGUF ファイルで、解決順は 明示パス → `<データディレクトリ>/models` →
+`~/.ollama` の既存ストア（manifest→blob 参照。Ollama で pull 済みのモデルはそのまま使える）。
+ダウンロードは `registry.ollama.ai` へのプレーン HTTP（manifest→blob）で、デーモンなしに
+`name:tag` の表記を保つ。
+
+予測ジョブが走っている間は `heavy` フラグが立ち、全ての LLM リクエストが回答し終えた時点で
+サーバーを止める（従来の `keep_alive=0` と同じ契約）。通常利用では 15 分のアイドル経過で
+モデルを降ろす。`unload_model()` はサーバーが静かになるまで最大 15 秒待つ。
 
 ### 10.3 モデル能力への適応
 
-`/api/show` が返す `capabilities`・`model_info` を起動ごとにモデル単位で確認し、生成パラメータを
-合わせる:
+GGUF ヘッダを直接読んで `capabilities`（`tokenizer.chat_template` 中の思考スイッチの有無）と
+学習コンテキスト長（`*.context_length`）を得る — サーバー未起動でも判定できる:
 
-- `thinking` 能力を持たないモデル（Gemma 系など）では `llm_think` が有効でも `think=false` で送る。
-  設定画面にも非対応の警告が出る
-- モデルの学習コンテキスト長（`*.context_length`）が `num_ctx` 既定値 (32,768) より小さい場合は
-  その値に縮める。学習窓を超えた KV キャッシュはメモリを食うだけで品質は上がらない
-- 別タグのモデルを読み込む際は同居中のモデルを全て解放する（`make_room_for`）。同ファミリでも
-  別サイズは別モデルであり、9B を残したまま 27B を載せると実測で CPU/GPU に分割配置され応答不能
-  になった
+- `thinking` に非対応のモデル（Gemma 系など）では `llm_think` が有効でも `enable_thinking` を
+  送らない。設定画面にも非対応の警告が出る
+- 起動するコンテキスト窓 (`--ctx-size`) は、既定 32,768 とプロンプト見積もりの大きい方を
+  モデルの学習窓で頭打ちにする。学習窓を超えた KV キャッシュはメモリを食うだけで品質は上がらない
+- 別タグのモデルを読み込む際は同居中のモデルを全て解放する（`make_room_for` = プロセス再起動）。
+  同ファミリでも別サイズは別モデルであり、9B を残したまま 27B を載せると実測で CPU/GPU に
+  分割配置され応答不能になった
 - 出力が JSON として読めないときは一度だけ、壊れた出力を見せてスキーマに従う JSON だけを
   出力し直させる。直らなければ従来通りエラーになる
 
@@ -791,11 +802,11 @@ oritatami.sqlite3      ジョブ・ライブラリ・スレッド・LLM ログ�
 settings.json          設定
 instance.json / .lock  単一インスタンス制御
 oritatami.log          アプリのログ
-ollama-serve.log       同梱 Ollama のログ
+llama-server.log       起動した llama-server のログ
 jobs/<job_id>/         入力 YAML、MSA、Boltz の出力、実行ログ、メモリ計測
 imports/               取り込んだ構造と重ね合わせ結果
 msa-cache/             再利用可能な MSA
-ollama/                自己取得した Ollama（同梱版・システム版がない場合）
+ollama/                自己取得したランタイム（llama-server。同梱版・システム版がない場合）
 ```
 
 Boltz の重みは `~/.boltz`（`boltz_cache`）。構造の重みが約 2 GB、親和性の重みと化学

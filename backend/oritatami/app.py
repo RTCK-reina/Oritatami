@@ -254,7 +254,7 @@ def llm_status() -> dict[str, Any]:
 
 @app.post("/api/llm/start")
 def llm_start() -> dict[str, Any]:
-    """Start Ollama, fetching it first if this machine has none.
+    """Start llama-server, fetching it first if this machine has none.
 
     The button that calls this is the consent: a 150 MB download does not start on its own,
     and once it has, the caller watches ``/api/llm/status`` for the progress.
@@ -269,10 +269,7 @@ def llm_install() -> dict[str, Any]:
 
 @app.post("/api/llm/pull")
 def llm_pull(body: PullBody) -> dict[str, Any]:
-    if not llm.server_up():
-        started = llm.ensure_server()
-        if not started.get("running"):
-            raise llm.LlmError(started.get("error") or "Ollama を起動できません")
+    # Pulling is a registry download — it works before any server is up at all.
     return llm.start_pull(body.model)
 
 
@@ -1328,7 +1325,7 @@ def assistant_ask(body: AskBody) -> dict[str, Any]:
     if not llm.server_up():
         started = llm.ensure_server()
         if not started.get("running"):
-            raise llm.LlmError(started.get("error") or "Ollama が起動していません")
+            raise llm.LlmError(started.get("error") or "llama-server が起動していません")
     heavy_model = get_settings().llm_model_heavy.strip()
     if body.heavy and not heavy_model:
         raise HTTPException(400, "じっくり答えるモデルが設定されていません。設定画面で指定してください")

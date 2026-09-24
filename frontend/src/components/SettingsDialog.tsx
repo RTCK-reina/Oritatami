@@ -127,7 +127,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 
                     {section === 'llm' && (
                         <section>
-                            <h3>LLM (Ollama)</h3>
+                            <h3>LLM (llama.cpp)</h3>
                             <Field label="使うモデル" hint={<>
                                 予測の直前に LLM はメモリから解放されるので、Boltz とメモリを奪い合うことはありません。
                                 <More>
@@ -157,7 +157,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                             </Field>
                             <div className="row wrap">
                                 <Field label="温度"><input type="number" step={0.1} min={0} max={2} value={s.llm_temperature} onChange={e => set('llm_temperature', Number(e.target.value))} /></Field>
-                                <Field label="Ollama URL"><input value={s.ollama_url} onChange={e => set('ollama_url', e.target.value)} /></Field>
+                                <Field label="llama-server URL"><input value={s.ollama_url} onChange={e => set('ollama_url', e.target.value)} /></Field>
                             </div>
                             <label className="inline-toggle">
                                 <input type="checkbox" checked={s.llm_think} onChange={e => set('llm_think', e.target.checked)} /> 思考モード (回答前に長く考える)

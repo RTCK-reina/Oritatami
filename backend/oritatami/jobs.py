@@ -374,8 +374,8 @@ class JobManager:
                     # Boltz needs most of unified memory (13 GB measured for a 260-residue
                     # complex with affinity); release the idle chat and ESM-2 models first.
                     # The flag keeps them from being pulled straight back in: while it is set
-                    # every LLM request asks Ollama to drop the model as soon as it answers,
-                    # instead of parking it in unified memory for the 15-minute keep_alive.
+                    # every LLM request stops the server as soon as it answers, instead of
+                    # parking the model in unified memory for the 15-minute idle window.
                     llm.set_heavy(True)
                     llm.unload_model()
                     from .engines import esm

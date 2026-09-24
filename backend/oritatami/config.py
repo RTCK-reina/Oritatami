@@ -92,7 +92,7 @@ def frontend_dist() -> Path:
 
 @dataclass
 class Settings:
-    # Local LLM (Ollama)
+    # Local LLM (llama-server; the settings keep their ollama_* names for compatibility)
     ollama_url: str = "http://127.0.0.1:11434"
     # Empty = find it: the copy inside the .app, then the one this app downloaded, then
     # whatever is installed on the machine.
@@ -274,7 +274,7 @@ def _coerce(name: str, value: Any, default: Any) -> Any:
 # Errors from here are shown to the user verbatim in the settings dialog, so they have
 # to name the field the way the dialog labels it — not by its internal key.
 _LABELS = {
-    "ollama_bin": "Ollama の場所",
+    "ollama_bin": "llama-server の場所",
     "diffusion_samples": "既定のサンプル数", "recycling_steps": "既定のリサイクル",
     "sampling_steps": "既定の拡散ステップ", "llm_model": "使うモデル",
     "llm_model_heavy": "じっくり答えるときのモデル",
@@ -286,7 +286,7 @@ _LABELS = {
     "autopilot_protect_interfaces": "界面の残基を保護する",
     "mpnn_enabled": "逆折り畳みで確認する",
     "mpnn_veto": "逆折り畳みの却下ライン",
-    "llm_temperature": "温度", "ollama_url": "Ollama URL",
+    "llm_temperature": "温度", "ollama_url": "llama-server URL",
     "msa_server_url": "MSA サーバー", "esm_model": "ESM-2 のモデル",
     "boltz_cache": "キャッシュ (重み・化学辞書)",
     "autopilot_protected_residues": "変更を禁止する残基",

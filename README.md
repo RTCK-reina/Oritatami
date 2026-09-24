@@ -9,7 +9,7 @@ runs locally — only MSA search and database lookups leave the machine. Japanes
 
 - **構造予測**: Boltz-2 (タンパク質・DNA/RNA・薬などの低分子・金属イオンの複合体、結合親和性)
 - **変異の手がかり**: ESM-2 による全 1 残基置換のスコア (変異スキャン)、配列の「天然らしさ」の改良
-- **AI アシスタント**: ローカルの LLM (Ollama、既定は `qwen3.5:9b`) が変異・結合相手・新しい配列を提案。提案は配列との照合、UniProt / PubChem / PDB 化学辞書、RDKit、ESM-2 で検証してから表示
+- **AI アシスタント**: ローカルの LLM (llama.cpp、既定は `qwen3.5:9b`) が変異・結合相手・新しい配列を提案。提案は配列との照合、UniProt / PubChem / PDB 化学辞書、RDKit、ESM-2 で検証してから表示
 - **3D ビューア**: Mol* を内蔵。pLDDT 色分け、表面・原子表示、ポケット、変異残基の強調、2 構造の重ね合わせ (RMSD)、4K 画像
 
 計算は手元の Mac で行います。外部に送られるのは、MSA 検索 (ColabFold 公開サーバー) に使うタンパク質配列と、UniProt・RCSB PDB・AlphaFold DB・PubChem への検索語だけです。
@@ -34,7 +34,7 @@ cd Oritatami
 - Python 3.12 の仮想環境 (`.venv`) を uv で作り、Boltz-2・PyTorch・ESM-2 などを入れる
 - 画面 (フロントエンド) をビルドする (Node.js がなければ Homebrew で入れるか尋ねます)
 - Boltz-2 の重みを先にダウンロードするか尋ねる (いいえなら初回の予測時に自動取得)
-- Ollama と LLM モデル (`qwen3.5:9b`) を入れるか尋ねる
+- llama.cpp と LLM モデル (`qwen3.5:9b`) を入れるか尋ねる
 - `~/Applications/Oritatami.app` を作るか尋ねる
 
 すべて「はい」で進めるときは `./scripts/setup.sh --yes`、テストや lint の道具も入れるときは `--dev` を付けます。
@@ -97,7 +97,7 @@ cd Oritatami
 
 ## 困ったとき
 
-- **準備状況の確認**: 設定 (⌘,) の「準備状況」に、Boltz-2・重み・GPU・ESM-2・Ollama・LLM モデル・空きディスクの状態と、足りないものの直し方が出ます
+- **準備状況の確認**: 設定 (⌘,) の「準備状況」に、Boltz-2・重み・GPU・ESM-2・llama-server・LLM モデル・空きディスクの状態と、足りないものの直し方が出ます
 - **予測が遅い / 止まって見える**: 結果パネルの「ログを表示」で進行を確認できます。初回は重みのダウンロードで時間がかかり、「MSA 検索」は公開サーバーが混んでいると数分待つことがあります
 - **メモリ不足**: 使用量はトークン数 (残基数 + リガンド重原子数) が増えると急に増えます。予測前の目安表示に「足りなくなる可能性」と出たら、コピー数を減らすか、長いタンパク質を必要なドメインだけに切り出してください
 - **アプリが起動しない**: `~/Library/Logs/Oritatami/launcher.log` と `~/Library/Application Support/Oritatami/oritatami.log` を確認してください。`.venv` を作り直すときは `./scripts/setup.sh` を再実行します
@@ -143,12 +143,12 @@ cd frontend && npm run dev              # 開発サーバー (API は 127.0.0.1:
 
 ### API
 
-すべて `http://127.0.0.1:47823/api` 以下、JSON。エラーは `{"detail": "日本語の説明"}` と HTTP ステータス (400 入力不正 / 404 なし / 502 外部 DB / 503 Ollama・ESM 不可)。
+すべて `http://127.0.0.1:47823/api` 以下、JSON。エラーは `{"detail": "日本語の説明"}` と HTTP ステータス (400 入力不正 / 404 なし / 502 外部 DB / 503 LLM・ESM 不可)。
 
 | メソッド | パス | 内容 |
 | --- | --- | --- |
 | GET | `/ping` | 生存確認 `{ok, version}` |
-| GET | `/health` | 準備状況 (Boltz・重み・GPU・ESM・Ollama・マシン・空きディスク) |
+| GET | `/health` | 準備状況 (Boltz・重み・GPU・ESM・LLM・マシン・空きディスク) |
 | GET / PATCH | `/settings` | 設定の取得・部分更新 |
 | POST | `/estimate` | `{spec}` → 所要時間 `{seconds, low, high, breakdown, basis, memory}` |
 | POST | `/jobs/predict` | `{spec, title?, parent_id?, origin?}` → ジョブ |
@@ -186,7 +186,7 @@ cd frontend && npm run dev              # 開発サーバー (API は 127.0.0.1:
 | GET / POST | `/system/gpu`, `/system/memory`, `/system/memory/release`, `/system/ssd` | GPU 上限・メモリ推移・SSD 摩耗 |
 | GET / POST | `/pdb_watcher/config`, `/pdb_watcher/poll_now` | 新着 PDB の自動予測 |
 | POST | `/files/save`, `/notify` | 画像の保存 / macOS 通知 |
-| GET / POST | `/llm/status`, `/llm/start`, `/llm/pull`, `/llm/install` | Ollama の状態・起動・モデル取得 |
+| GET / POST | `/llm/status`, `/llm/start`, `/llm/pull`, `/llm/install` | llama-server の状態・起動・モデル取得 |
 
 予測の入力 (`spec`) の形:
 
@@ -205,7 +205,7 @@ cd frontend && npm run dev              # 開発サーバー (API は 127.0.0.1:
 
 ## 使っているもの
 
-Boltz-2 (boltz-community)、ESM-2 (Meta AI)、Mol*、Ollama と Qwen、FastAPI、pywebview、RDKit、gemmi、Biopython、React、Vite。各モデル・ライブラリはそれぞれのライセンスに従います。
+Boltz-2 (boltz-community)、ESM-2 (Meta AI)、Mol*、llama.cpp と Qwen/Gemma 系 LLM、FastAPI、pywebview、RDKit、gemmi、Biopython、React、Vite。各モデル・ライブラリはそれぞれのライセンスに従います。
 予測値はすべて計算による推定で、実験値の代わりにはなりません。
 
 © 2026 RTCK
@@ -220,19 +220,19 @@ Boltz-2 (boltz-community)、ESM-2 (Meta AI)、Mol*、Ollama と Qwen、FastAPI�
 
 | 配布物 | 中身 | 初回起動 |
 | --- | --- | --- |
-| `Oritatami.app.zip` | Ollama も同梱 | そのまま使えます |
-| `Oritatami-no-ollama.app.zip` | Ollama は含まない | 設定 → 準備状況の「用意する」でアプリが取得します (約 150 MB) |
+| `Oritatami.app.zip` | llama-server も同梱 | そのまま使えます |
+| `Oritatami-no-ollama.app.zip` | llama-server は含まない | 設定 → 準備状況の「用意する」でアプリが取得します (約 150 MB) |
 
 どちらも Boltz-2 の重み (約 6 GB)・ESM-2 (約 2.5 GB)・LLM モデル (約 6 GB) は初回に必要な
 ぶんだけダウンロードします。署名も公証もしていないので、初回は Finder で右クリック →「開く」
 から起動してください。
 
 ソースから動かす場合は上の「インストール」の手順 (`./scripts/setup.sh`) を使ってください。
-`.app` を作り直すときは `./scripts/make_app.sh` (Ollama を省くなら `--no-ollama`) です。
+`.app` を作り直すときは `./scripts/make_app.sh` (llama-server を省くなら `--no-ollama`) です。
 
 ## ライセンス
 
 MIT License — [LICENSE](LICENSE) を参照してください。
 
-同梱している第三者のソフトウェアはそれぞれのライセンスに従います (Ollama: MIT、Boltz: MIT、
+同梱している第三者のソフトウェアはそれぞれのライセンスに従います (llama.cpp: MIT、Ollama 配布物: MIT、Boltz: MIT、
 PyTorch: BSD-3-Clause、Python: PSF、ESM-2 の重み: MIT)。

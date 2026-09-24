@@ -85,29 +85,30 @@ if [ "$MODE" = standalone ]; then
     find "$SITE/oritatami" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
     ditto "$REPO/frontend/dist" "$RES/frontend/dist"
 
-    # 4. Ollama itself. The LLM half of the app is useless without it, and a fresh Mac has none;
-    # bundling it is what makes "open the app and it works" true. Kept as its own folder because
-    # the archive is flat — the binary looks for llama-server and the runners beside itself.
+    # 4. llama-server itself. The LLM half of the app is useless without it, and a fresh Mac has none;
+    # bundling it is what makes "open the app and it works" true. The archive is still Ollama's
+    # release tarball — it ships llama-server and the runner libraries beside the ollama binary,
+    # and the app only uses the server. Kept as its own folder because the archive is flat.
     if [ "$WITH_OLLAMA" = 1 ]; then
         # The archive is kept, not the unpacked tree: 153 MB instead of 502 MB, and unpacking
         # it again costs a couple of seconds.
         OLLAMA_TGZ="$REPO/.cache/ollama-darwin.tgz"
         mkdir -p "$REPO/.cache"
         if [ ! -s "$OLLAMA_TGZ" ]; then
-            echo "Ollama をダウンロードします (約 150 MB)…"
+            echo "llama-server (llama.cpp) をダウンロードします (約 150 MB)…"
             /usr/bin/curl -fsSL --retry 2 -o "$OLLAMA_TGZ.part" \
                 "https://github.com/ollama/ollama/releases/latest/download/ollama-darwin.tgz" \
                 && mv "$OLLAMA_TGZ.part" "$OLLAMA_TGZ" \
                 || { rm -f "$OLLAMA_TGZ.part"
-                     echo "警告: Ollama を取得できませんでした。.app からは「用意する」で後から取得できます" >&2; }
+                     echo "警告: llama-server を取得できませんでした。.app からは「用意する」で後から取得できます" >&2; }
         else
-            echo "Ollama を同梱します (キャッシュ: $OLLAMA_TGZ)…"
+            echo "llama-server を同梱します (キャッシュ: $OLLAMA_TGZ)…"
         fi
         if [ -s "$OLLAMA_TGZ" ]; then
             mkdir -p "$RES/ollama"
             # bsdtar keeps the code-signature metadata; a copy without it is killed on launch
             /usr/bin/tar xzf "$OLLAMA_TGZ" -C "$RES/ollama"
-            chmod +x "$RES/ollama/ollama" 2>/dev/null || true
+            chmod +x "$RES/ollama/llama-server" "$RES/ollama/ollama" 2>/dev/null || true
         fi
     fi
 
@@ -170,9 +171,9 @@ fi
 # console scripts (boltz) resolve their interpreter through PATH
 export PATH="$VENV/bin:$RES/runtime/bin:/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin"
 export ORITATAMI_FRONTEND_DIST="$RES/frontend/dist"
-# Ollama lives in the bundle too when it was built with it; the app falls back to fetching
-# its own copy into the data folder when this path is missing.
-[ -x "$RES/ollama/ollama" ] && export ORITATAMI_OLLAMA_DIR="$RES/ollama"
+# llama-server lives in the bundle too when it was built with it; the app falls back to
+# fetching its own copy into the data folder when this path is missing.
+[ -x "$RES/ollama/llama-server" ] && export ORITATAMI_OLLAMA_DIR="$RES/ollama"
 # exec keeps this process as the app, so clicking the Dock icon again brings the window forward
 exec "$VENV/bin/$PYTAG" -m oritatami --app >>"$LOG_DIR/launcher.log" 2>&1
 LAUNCHER
@@ -203,8 +204,8 @@ if [ "$MODE" = standalone ]; then
         echo "警告: .app の中にこのフォルダへの参照が残っています:" >&2
         echo "$LEFTOVERS" >&2
     fi
-    OLLAMA_NOTE="Ollama 同梱なし"
-    [ -x "$RES/ollama/ollama" ] && OLLAMA_NOTE="Ollama 同梱"
+    OLLAMA_NOTE="llama-server 同梱なし"
+    [ -x "$RES/ollama/llama-server" ] && OLLAMA_NOTE="llama-server 同梱"
     echo "作成しました: $APP ($(du -sh "$APP" | cut -f1), 自己完結型, $OLLAMA_NOTE)"
 else
     echo "作成しました: $APP ($REPO/.venv を参照)"

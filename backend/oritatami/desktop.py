@@ -159,8 +159,15 @@ def _run(args: argparse.Namespace) -> int:
         config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", timeout_graceful_shutdown=3)
         server = uvicorn.Server(config)
 
+        def _ensure_llm() -> None:
+            # Model first, then the server: llama-server needs a GGUF to start, and a
+            # missing one is pulled here in the background.
+            if llm.ensure_server(wait_sec=60.0).get("model_missing"):
+                llm.ensure_model()
+                llm.ensure_server(wait_sec=60.0)
+
         if args.serve:
-            threading.Thread(target=llm.ensure_server, daemon=True).start()
+            threading.Thread(target=_ensure_llm, name="llm-start", daemon=True).start()
             threading.Thread(target=lambda: (_wait_ready(url, threading.main_thread()), lock.publish(url, __version__)),
                              daemon=True).start()
             print(f"Oritatami API: {url}")
@@ -169,11 +176,7 @@ def _run(args: argparse.Namespace) -> int:
 
         thread = threading.Thread(target=server.run, name="uvicorn", daemon=True)
         thread.start()
-        def _ensure_llm() -> None:
-            result = llm.ensure_server(wait_sec=60.0)
-            if result.get("running"):
-                llm.ensure_model()
-        threading.Thread(target=_ensure_llm, name="ollama-start", daemon=True).start()
+        threading.Thread(target=_ensure_llm, name="llm-start", daemon=True).start()
         _wait_ready(url, thread)
         lock.publish(url, __version__)
 

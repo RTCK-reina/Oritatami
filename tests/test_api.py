@@ -485,74 +485,83 @@ def test_search_endpoints_write_history(client, monkeypatch):
     assert client.get("/api/searches").json() == []
 
 
-def test_a_second_model_is_released_before_boltz_runs(monkeypatch):
-    """unload_model() only knew about llm_model, so the heavy one stayed in memory while
-    Boltz asked for 13 GB of it."""
+def test_unloading_the_model_stops_the_server(monkeypatch):
+    """One process serves one model — releasing memory for Boltz is the process ending."""
     from oritatami import llm
 
-    monkeypatch.setattr(llm, "server_up", lambda: True)
-    monkeypatch.setattr(llm, "loaded_models", lambda: ["qwen3.5:9b", "qwen3:14b"])
-    freed: list[str] = []
-    monkeypatch.setattr(llm, "_release", freed.append)
+    stopped = []
+    up = {"v": True}
+    monkeypatch.setattr(llm, "server_up", lambda: up["v"])
+
+    def stop():
+        stopped.append(True)
+        up["v"] = False
+
+    monkeypatch.setattr(llm, "_stop_server", stop)
     llm.unload_model()
-    assert freed == ["qwen3.5:9b", "qwen3:14b"]
+    assert stopped, "予測の前にサーバーを止めてメモリを明け渡す"
 
 
-def test_loading_a_different_model_evicts_the_others(monkeypatch):
+def test_loading_a_different_model_is_a_restart(monkeypatch):
+    """A same-family model at another tag is another file; serving it means restarting —
+    gemma3:12b and gemma3:27b cannot share one process."""
+    from pathlib import Path
+
     from oritatami import llm
 
-    monkeypatch.setattr(llm, "loaded_models", lambda: ["qwen3.5:9b", "qwen3:14b"])
-    freed: list[str] = []
-    monkeypatch.setattr(llm, "_release", freed.append)
-    llm.make_room_for("qwen3:14b")
-    assert freed == ["qwen3.5:9b"], "同じモデルは解放しないこと"
+    monkeypatch.setattr(llm, "_proc", object())
+    monkeypatch.setattr(llm, "_proc_path", Path("/m/gemma3-12b.gguf"))
+    monkeypatch.setattr(llm, "_proc_model", "gemma3:12b")
+    monkeypatch.setattr(llm, "resolve_model",
+                        lambda name: {"name": name,
+                                      "path": Path(f"/m/{name.replace(':', '-')}.gguf")})
+    stopped: list[bool] = []
+    monkeypatch.setattr(llm, "_stop_server_locked", lambda: stopped.append(True))
 
-    freed.clear()
-    llm.make_room_for("qwen3.5:27b")
-    assert freed == ["qwen3.5:9b", "qwen3:14b"], \
-        "別タグは別モデル。9b を残したまま 27b を載せると 20 GB 級に重なり GPU から溢れる"
+    llm.make_room_for("gemma3:12b")
+    assert not stopped, "同じファイルなら起動済みのまま"
+    llm.make_room_for("gemma3:27b")
+    assert stopped == [True], "別タグは別モデル — 27b を載せるには 12b を終了する"
 
 
-def test_the_tagless_name_is_an_alias_of_latest(monkeypatch):
-    """`gemma3` is served back as `gemma3:latest`; without the alias the request would
-    evict the very model it wants to load."""
+def test_the_tagless_name_is_an_alias_of_latest(monkeypatch, tmp_path):
+    """`gemma3` resolves to the file a `gemma3:latest` pull wrote; without the alias the
+    resolution misses and the very model it wants gets treated as absent."""
     from oritatami import llm
 
-    monkeypatch.setattr(llm, "loaded_models", lambda: ["gemma3:latest", "qwen3:14b"])
-    freed: list[str] = []
-    monkeypatch.setattr(llm, "_release", freed.append)
-    llm.make_room_for("gemma3")
-    assert freed == ["qwen3:14b"]
+    gguf = tmp_path / "gemma3-latest.gguf"
+    gguf.write_bytes(b"GGUF")
+    monkeypatch.setattr(llm, "models_dir", lambda: tmp_path)
+    monkeypatch.setattr(llm, "_registry",
+                        lambda: {"gemma3-latest": {"name": "gemma3:latest"}})
+    monkeypatch.setattr(llm, "_ollama_blob", lambda name: None)
+    assert llm.resolve_model("gemma3")["path"] == gguf
+    assert llm.resolve_model("gemma3:latest")["path"] == gguf
 
 
 def test_think_and_context_window_follow_what_the_model_can_do(monkeypatch):
-    """A model that cannot think gets think=false, and one trained on a smaller window
-    does not get a 32k KV cache."""
+    """A model whose template has no thinking switch gets no enable_thinking kwarg, and
+    one trained on a smaller window does not get a 32k KV cache."""
     from oritatami import llm
     from oritatami.config import update_settings
 
     update_settings({"llm_think": True})
     info = {
-        "gemma3:4b": {"capabilities": ["completion"],
-                      "model_info": {"gemma3.context_length": 4096}},
-        "qwen3.5:9b": {"capabilities": ["completion", "thinking"],
-                       "model_info": {"qwen3.context_length": 262144}},
+        "gemma3:4b": {"capabilities": ["completion"], "context_length": 4096},
+        "qwen3.5:9b": {"capabilities": ["completion", "thinking"], "context_length": 262144},
     }
     monkeypatch.setattr(llm, "model_info", lambda name: info.get(name, {}))
-    monkeypatch.setattr(llm, "make_room_for", lambda name: None)
+    monkeypatch.setattr(llm, "_ensure_running", lambda name, est_tokens=0.0: None)
     payloads: list[dict] = []
     monkeypatch.setattr(llm, "_post_chat", lambda payload, timeout: payloads.append(payload) or "")
 
     llm.chat([{"role": "user", "content": "hi"}], model="gemma3:4b")
-    assert payloads[-1]["think"] is False, "思考に非対応のモデルには送らない"
-    assert payloads[-1]["options"]["num_ctx"] == 4096, "学習窓より広い KV は取らない"
+    assert "chat_template_kwargs" not in payloads[-1], "思考に非対応のモデルには送らない"
+    assert llm._needed_ctx("gemma3:4b", 0) == 4096, "学習窓より広い KV は取らない"
 
     llm.chat([{"role": "user", "content": "hi"}], model="qwen3.5:9b")
-    assert payloads[-1]["think"] is True
-    assert payloads[-1]["options"]["num_ctx"] == llm.NUM_CTX
-
-    llm.chat([{"role": "user", "content": "hi"}], model="old:1b")
-    assert payloads[-1]["think"] is True, "capabilities が無い古い Ollama では従来通り送る"
+    assert payloads[-1]["chat_template_kwargs"]["enable_thinking"] is True
+    assert llm._needed_ctx("qwen3.5:9b", 0) == llm.NUM_CTX
 
 
 def test_strict_mps_turns_a_silent_cpu_fallback_into_a_failure():

@@ -5,7 +5,7 @@ import { Button, Icon, Spinner } from './ui';
 
 type Level = 'ok' | 'warn' | 'bad' | 'pending';
 
-/** Ollama can be the copy inside this app, one it fetched, or the machine's own. */
+/** llama-server can be the copy inside this app, one it fetched, or the machine's own. */
 const SOURCE_LABEL: Record<string, string> = {
     bundled: ' (アプリ内蔵)',
     downloaded: ' (アプリが取得したもの)',
@@ -29,7 +29,7 @@ export function SetupStatus({ compact = false }: { compact?: boolean }) {
     const pull = health?.llm.pull;
     const install = health?.llm.install;
 
-    // while a download runs — the model, or Ollama itself — refresh often enough to show progress
+    // while a download runs — the model, or the runtime itself — refresh often enough to show progress
     useEffect(() => {
         if (!pull?.active && !install?.active) return;
         const t = window.setInterval(() => void refreshHealth(), 2000);
@@ -83,7 +83,7 @@ export function SetupStatus({ compact = false }: { compact?: boolean }) {
         },
         {
             key: 'ollama',
-            label: 'AI アシスタント (Ollama)',
+            label: 'AI アシスタント (llama.cpp)',
             level: health.llm.server ? 'ok' : install?.active ? 'pending' : 'bad',
             detail: health.llm.server
                 ? `起動しています${SOURCE_LABEL[health.llm.source ?? ''] ?? ''}`
@@ -97,19 +97,20 @@ export function SetupStatus({ compact = false }: { compact?: boolean }) {
             action: health.llm.server || install?.active ? undefined : {
                 label: health.llm.binary ? '起動する' : '用意する',
                 run: run('ollama', () => api.llmStart().then(r => {
-                    if (!r.running && !r.installing) throw new Error(r.error ?? 'Ollama を起動できませんでした');
+                    if (!r.running && !r.installing) throw new Error(r.error ?? 'llama-server を起動できませんでした');
                 })),
             },
         },
         {
             key: 'model',
             label: `LLM モデル (${health.llm.model})`,
-            level: !health.llm.server ? 'pending' : health.llm.model_available ? 'ok' : pull?.active ? 'pending' : 'warn',
-            detail: !health.llm.server ? 'Ollama の起動後に確認します'
-                : health.llm.model_available ? 'ダウンロード済み'
-                    : pull?.active ? `ダウンロード中 ${pull.total ? Math.round(((pull.completed ?? 0) / pull.total) * 100) : 0}%`
-                        : pull?.error ? `ダウンロード失敗: ${pull.error}` : 'まだダウンロードされていません (数 GB)',
-            action: health.llm.server && !health.llm.model_available && !pull?.active
+            // Availability is read from the GGUF files themselves, so it is known before
+            // the server is up — and the download works without a server too.
+            level: health.llm.model_available ? 'ok' : pull?.active ? 'pending' : 'warn',
+            detail: health.llm.model_available ? 'ダウンロード済み'
+                : pull?.active ? `ダウンロード中 ${pull.total ? Math.round(((pull.completed ?? 0) / pull.total) * 100) : 0}%`
+                    : pull?.error ? `ダウンロード失敗: ${pull.error}` : 'まだダウンロードされていません (数 GB)',
+            action: !health.llm.model_available && !pull?.active
                 ? { label: 'ダウンロード', run: run('model', () => api.llmPull(health.llm.model)) } : undefined,
         },
         {

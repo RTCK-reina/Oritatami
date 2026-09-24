@@ -48,8 +48,8 @@ _watchdog_tried: set[str] = set()
 # but it costs one masked forward pass per position, so it is capped.
 _MAX_SCAN_LEN = 400
 
-# Time to wait for Ollama to be ready before giving up (seconds)
-_OLLAMA_WAIT = 180.0
+# Time to wait for the LLM server to be ready before giving up (seconds)
+_LLM_WAIT = 180.0
 
 # How deep the chain may go now lives in settings (autopilot_max_depth, 0 = unlimited)
 # and is read through governor.depth_exhausted(). Continuous operation is that setting
@@ -317,7 +317,7 @@ def _watchdog(jobs: JobManager, db: Database) -> None:
     """Keep a continuous run going across a failed analysis.
 
     The chain advances only when an analysis yields a usable proposal, so one bad LLM
-    reply — a truncated JSON, a refusal, Ollama restarting — ends it for good, silently.
+    reply — a truncated JSON, a refusal, the LLM restarting — ends it for good, silently.
     That is fine for a bounded depth but not for a loop asked to run until it is switched
     off. When everything has been quiet for a while, this re-analyses the best result so
     far, which both restarts the chain and pulls it back to the top of the hill instead
@@ -397,21 +397,16 @@ def _analyze(job: dict[str, Any], db: Database, jobs: JobManager,
 
     log.info("Autopilot: %s の自動解析を開始します", job_id)
 
-    # Wait for Ollama
-    deadline = time.time() + _OLLAMA_WAIT
-    waited = False
-    while time.time() < deadline:
-        if llm.server_up():
-            if waited:
-                log.info("Autopilot: Ollama が応答しました。%s の解析を続けます", job_id)
-            break
-        if not waited:
-            # Three minutes of silence looked like a hung loop; say what is being waited on.
-            log.info("Autopilot: Ollama の起動を待っています (最大 %.0f 秒)", _OLLAMA_WAIT)
-            waited = True
-        time.sleep(5.0)
-    else:
-        log.warning("Autopilot: Ollama が起動していないため %s の解析をスキップします", job_id)
+    # Bring the LLM up. There is no daemon to wait for — ensure_server spawns
+    # llama-server with the configured model, and when that model has not been pulled
+    # yet ensure_model fetches it first (a long wait, but this is a background thread).
+    state = llm.ensure_server(wait_sec=_LLM_WAIT)
+    if state.get("model_missing"):
+        llm.ensure_model(wait_sec=1200.0)
+        state = llm.ensure_server(wait_sec=_LLM_WAIT)
+    if not state.get("running"):
+        log.info("Autopilot: LLM が使えません (%s)。%s の解析をスキップします",
+                 state.get("error") or "起動していません", job_id)
         return
 
     spec = job.get("spec") or {}
@@ -532,8 +527,8 @@ def _analyze(job: dict[str, Any], db: Database, jobs: JobManager,
     results["elapsed_sec"] = round(results["finished_at"] - started_at, 1)
 
     # Hand the memory back. The analysis runs while the next prediction may already be
-    # underway, and Ollama holds a model until its keep_alive expires — 6 GB of unified
-    # memory sitting on top of a Boltz run that wants nearly all of it.
+    # underway, and the server keeps a model resident until its idle reap fires — 6 GB
+    # of unified memory sitting on top of a Boltz run that wants nearly all of it.
     try:
         llm.unload_model()
     except Exception as exc:  # never let bookkeeping kill the loop
