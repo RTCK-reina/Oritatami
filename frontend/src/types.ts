@@ -408,6 +408,10 @@ export interface LlmStatus {
     model_available: boolean;
     heavy_model?: string;
     heavy_available?: boolean;
+    /** false when Ollama reports the configured model cannot think */
+    thinking_supported?: boolean;
+    /** the model's trained context window, when Ollama reports it */
+    context_length?: number | null;
     models: { name: string; size: number; parameters?: string; quantization?: string }[];
     pull?: { active: boolean; model?: string; status?: string; completed?: number; total?: number; error?: string | null };
     /** where the Ollama binary in use came from, and how fetching one is going */

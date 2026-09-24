@@ -293,6 +293,50 @@ def test_the_heavy_model_is_only_used_when_asked(tmp_path, monkeypatch):
     assert seen[-1] == "big:27b" and r["model"] == "big:27b"
 
 
+def test_a_malformed_json_answer_is_repaired_once(tmp_path, monkeypatch):
+    """A sentence around the object is the common small-model failure; throwing the
+    whole answer away loses a generation of autopilot ideas."""
+    from oritatami import assistant, llm
+    from oritatami.db import Database
+
+    db = Database(tmp_path / "t.sqlite3")
+    wb = {"name": "t", "components": [{"type": "protein", "label": "U", "chains": ["A"],
+                                       "sequence": "MQIFVKTLTG"}]}
+    outs = iter(["もちろんです: <<<not json>>>",
+                 '{"reply": "E3K を薦めます", "proposals": []}'])
+    asks: list[list[dict]] = []
+
+    def fake_chat(messages, **kwargs):
+        asks.append(messages)
+        return next(outs)
+
+    monkeypatch.setattr(llm, "chat", fake_chat)
+    r = assistant.ask(db, thread_id=None, mode="chat", message="?", workbench=wb, job=None,
+                      scan=None, scan_chain=None, focus_chain="A", count=1, persist=False,
+                      verify_reply=False)
+    assert len(asks) == 2
+    assert "JSON だけを出力し直してください" in asks[1][-1]["content"]
+    assert asks[1][-2]["role"] == "assistant", "壊れた出力を見せて直させる"
+    assert r["reply"] == "E3K を薦めます"
+
+
+def test_an_unrepairable_json_answer_still_fails(tmp_path, monkeypatch):
+    """The repair gets one try, then the original error stands — retries must not loop."""
+    from oritatami import assistant, llm
+    from oritatami.db import Database
+
+    db = Database(tmp_path / "t.sqlite3")
+    wb = {"name": "t", "components": [{"type": "protein", "label": "U", "chains": ["A"],
+                                       "sequence": "MQIFVKTLTG"}]}
+    calls = []
+    monkeypatch.setattr(llm, "chat", lambda messages, **kwargs: calls.append(1) or "not json at all")
+    with pytest.raises(llm.LlmError):
+        assistant.ask(db, thread_id=None, mode="chat", message="?", workbench=wb, job=None,
+                      scan=None, scan_chain=None, focus_chain="A", count=1, persist=False,
+                      verify_reply=False)
+    assert len(calls) == 2
+
+
 def test_a_settings_change_is_logged(caplog):
     """The autopilot switched itself off overnight and the log said nothing."""
     import logging
@@ -464,8 +508,51 @@ def test_loading_a_different_model_evicts_the_others(monkeypatch):
     assert freed == ["qwen3.5:9b"], "同じモデルは解放しないこと"
 
     freed.clear()
-    llm.make_room_for("qwen3.5:9b-instruct")
-    assert freed == ["qwen3:14b"], "同じファミリの別タグは載せ替えとみなさないこと"
+    llm.make_room_for("qwen3.5:27b")
+    assert freed == ["qwen3.5:9b", "qwen3:14b"], \
+        "別タグは別モデル。9b を残したまま 27b を載せると 20 GB 級に重なり GPU から溢れる"
+
+
+def test_the_tagless_name_is_an_alias_of_latest(monkeypatch):
+    """`gemma3` is served back as `gemma3:latest`; without the alias the request would
+    evict the very model it wants to load."""
+    from oritatami import llm
+
+    monkeypatch.setattr(llm, "loaded_models", lambda: ["gemma3:latest", "qwen3:14b"])
+    freed: list[str] = []
+    monkeypatch.setattr(llm, "_release", freed.append)
+    llm.make_room_for("gemma3")
+    assert freed == ["qwen3:14b"]
+
+
+def test_think_and_context_window_follow_what_the_model_can_do(monkeypatch):
+    """A model that cannot think gets think=false, and one trained on a smaller window
+    does not get a 32k KV cache."""
+    from oritatami import llm
+    from oritatami.config import update_settings
+
+    update_settings({"llm_think": True})
+    info = {
+        "gemma3:4b": {"capabilities": ["completion"],
+                      "model_info": {"gemma3.context_length": 4096}},
+        "qwen3.5:9b": {"capabilities": ["completion", "thinking"],
+                       "model_info": {"qwen3.context_length": 262144}},
+    }
+    monkeypatch.setattr(llm, "model_info", lambda name: info.get(name, {}))
+    monkeypatch.setattr(llm, "make_room_for", lambda name: None)
+    payloads: list[dict] = []
+    monkeypatch.setattr(llm, "_post_chat", lambda payload, timeout: payloads.append(payload) or "")
+
+    llm.chat([{"role": "user", "content": "hi"}], model="gemma3:4b")
+    assert payloads[-1]["think"] is False, "思考に非対応のモデルには送らない"
+    assert payloads[-1]["options"]["num_ctx"] == 4096, "学習窓より広い KV は取らない"
+
+    llm.chat([{"role": "user", "content": "hi"}], model="qwen3.5:9b")
+    assert payloads[-1]["think"] is True
+    assert payloads[-1]["options"]["num_ctx"] == llm.NUM_CTX
+
+    llm.chat([{"role": "user", "content": "hi"}], model="old:1b")
+    assert payloads[-1]["think"] is True, "capabilities が無い古い Ollama では従来通り送る"
 
 
 def test_strict_mps_turns_a_silent_cpu_fallback_into_a_failure():

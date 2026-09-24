@@ -10,6 +10,7 @@ import subprocess
 import sys
 import threading
 import time
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -292,6 +293,8 @@ def status() -> dict[str, Any]:
     heavy_wanted = (heavy if ":" in heavy else f"{heavy}:latest") if heavy else ""
     return {"server": True, "model": s.llm_model, "model_available": wanted in names, "models": models,
             "heavy_model": heavy, "heavy_available": bool(heavy) and heavy_wanted in names,
+            "thinking_supported": supports_thinking(s.llm_model),
+            "context_length": context_length(s.llm_model),
             "pull": pull_state(), **where}
 
 
@@ -385,6 +388,44 @@ def loaded_models() -> list[str]:
         return []
 
 
+@lru_cache(maxsize=32)
+def model_info(name: str) -> dict[str, Any]:
+    """Capabilities and architecture facts for one model, from /api/show.
+
+    Cached per name: the answer cannot change while the process lives, and every chat
+    call consults it. A failure degrades to "no information", which the callers treat
+    as the pre-capabilities behavior rather than as an error.
+    """
+    try:
+        r = httpx.post(_url("/api/show"), json={"model": name}, timeout=10.0)
+        r.raise_for_status()
+        return r.json()
+    except (httpx.HTTPError, ValueError):
+        return {}
+
+
+def supports_thinking(name: str) -> bool:
+    """False only when Ollama reports capabilities and "thinking" is not among them.
+
+    Models without it (Gemma-class) cannot think no matter what the flag asks; on
+    stricter servers asking anyway is an error. When the field is absent (older
+    Ollama), pass the flag through as before.
+    """
+    caps = model_info(name).get("capabilities")
+    if not isinstance(caps, list):
+        return True
+    return "thinking" in {str(c).lower() for c in caps}
+
+
+def context_length(name: str) -> int | None:
+    """The context the model was trained for, when Ollama reports it."""
+    info = model_info(name).get("model_info") or {}
+    for k, v in info.items():
+        if k.endswith(".context_length") and isinstance(v, int) and v > 0:
+            return v
+    return None
+
+
 def _release(name: str) -> None:
     try:
         httpx.post(_url("/api/generate"), json={"model": name, "keep_alive": 0}, timeout=20.0)
@@ -447,15 +488,25 @@ def unload_model(name: str | None = None) -> None:
                     ", ".join(still))
 
 
+def _canon(name: str) -> str:
+    """A model name the way /api/ps reports it: ``gemma3`` comes back as ``gemma3:latest``."""
+    name = name.strip()
+    return name if ":" in name else f"{name}:latest"
+
+
 def make_room_for(name: str) -> None:
     """Evict other models before loading this one.
 
     A 6.6 GB model on a 15-minute keep_alive plus a 14 GB one is 20.6 GB on a 24 GB machine:
     past the GPU residency limit, so the new model lands split across CPU and GPU and decodes
     several times slower. Measured on qwen3.5:27b: 17%/83% CPU/GPU and no answer in 15 minutes.
+
+    A resident model at a different tag is a different model, family or not — keeping
+    qwen3.5:9b while qwen3.5:27b loads recreates exactly the split residency measured above.
+    Only a name that resolves to the same tag (``gemma3`` vs ``gemma3:latest``) is spared.
     """
-    others = [m for m in loaded_models() if m and m != name
-              and m.split(":")[0] != name.split(":")[0]]
+    wanted = _canon(name)
+    others = [m for m in loaded_models() if m and _canon(m) != wanted]
     if not others:
         return
     log.info("%s を載せる前に %s を解放します", name, ", ".join(others))
@@ -536,14 +587,27 @@ def chat(messages: list[dict[str, str]], *, schema: dict[str, Any] | None = None
     s = get_settings()
     name = model or s.llm_model
 
+    think = bool(s.llm_think)
+    if think and not supports_thinking(name):
+        log.info("モデル %s は思考モードに対応していないため、通常モードで応答します", name)
+        think = False
+    num_ctx = NUM_CTX
+    trained_ctx = context_length(name)
+    if trained_ctx and trained_ctx < num_ctx:
+        # A KV cache bigger than the trained window only buys memory pressure: tokens
+        # past the limit are dropped by the model anyway, and quality degrades.
+        log.info("モデル %s の学習コンテキストは %d トークンのため、窓を %d → %d に合わせます",
+                 name, trained_ctx, NUM_CTX, trained_ctx)
+        num_ctx = trained_ctx
+
     def _build_payload(msgs: list[dict[str, str]]) -> dict[str, Any]:
         p: dict[str, Any] = {
             "model": name,
             "messages": msgs,
             "stream": False,
-            "think": s.llm_think,
+            "think": think,
             "options": {"temperature": s.llm_temperature if temperature is None else temperature,
-                        "num_ctx": NUM_CTX, "num_predict": NUM_PREDICT},
+                        "num_ctx": num_ctx, "num_predict": NUM_PREDICT},
             "keep_alive": keep_alive_for(keep_alive),
         }
         if schema is not None:

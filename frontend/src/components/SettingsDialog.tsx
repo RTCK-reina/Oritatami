@@ -7,7 +7,7 @@ import { uiEvents } from '../uiEvents';
 import { SetupStatus } from './SetupStatus';
 import { Button, Field, Icon, Modal, Spinner } from './ui';
 
-const SUGGESTED = ['qwen3.5:9b', 'qwen3.5:4b', 'qwen3.5:2b', 'qwen3.5:27b'];
+const SUGGESTED = ['qwen3.5:9b', 'qwen3.5:4b', 'qwen3.5:2b', 'qwen3.5:27b', 'gemma3:4b', 'gemma3:12b', 'gemma3:27b'];
 
 const SECTIONS = [
     { id: 'status', label: '準備状況', icon: 'check' },
@@ -177,13 +177,19 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                                     解析が数十分に伸びたり、空の結果になることがあります。自律運転させるならオフを推奨します。
                                 </div>
                             )}
+                            {s.llm_think && llm?.thinking_supported === false && llm.model === s.llm_model && (
+                                <div className="claim-warnings">
+                                    <strong>{s.llm_model} は思考モードに対応していません</strong>
+                                    サーバー側で通常モードに切り替わります。思考させたいときは対応モデルを選んでください。
+                                </div>
+                            )}
                             <hr className="settings-rule" />
                             <h4>モデルのダウンロード</h4>
                             <div className="row wrap end">
                                 <Field label="モデル名">
-                                    <input list="qwen-models" value={pullModel} onChange={e => setPullModel(e.target.value)} />
+                                    <input list="llm-models" value={pullModel} onChange={e => setPullModel(e.target.value)} />
                                 </Field>
-                                <datalist id="qwen-models">{SUGGESTED.map(m => <option key={m} value={m} />)}</datalist>
+                                <datalist id="llm-models">{SUGGESTED.map(m => <option key={m} value={m} />)}</datalist>
                                 <Button disabled={!!pull?.active || !pullModel.trim()} onClick={() => void api.llmPull(pullModel.trim())
                                     .then(p => setLlm(l => (l ? { ...l, pull: p } : l))).catch(e => toast('error', errorMessage(e)))}>取得</Button>
                                 <span className="small muted">保存とは別に、押した時点で始まります</span>
