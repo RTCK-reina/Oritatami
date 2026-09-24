@@ -86,18 +86,16 @@ if [ "$MODE" = standalone ]; then
     ditto "$REPO/frontend/dist" "$RES/frontend/dist"
 
     # 4. llama-server itself. The LLM half of the app is useless without it, and a fresh Mac has none;
-    # bundling it is what makes "open the app and it works" true. The archive is still Ollama's
-    # release tarball — it ships llama-server and the runner libraries beside the ollama binary,
-    # and the app only uses the server. Kept as its own folder because the archive is flat.
+    # bundling it is what makes "open the app and it works" true. The archive is a pinned upstream
+    # llama.cpp build — llama-server and the dylibs it resolves through @rpath land in one folder.
+    # Pinned because llama.cpp's /releases/latest only ships source; the bNNNN tags ship binaries.
     if [ "$WITH_OLLAMA" = 1 ]; then
-        # The archive is kept, not the unpacked tree: 153 MB instead of 502 MB, and unpacking
-        # it again costs a couple of seconds.
-        OLLAMA_TGZ="$REPO/.cache/ollama-darwin.tgz"
+        OLLAMA_TGZ="$REPO/.cache/llama-b11158-macos-arm64.tar.gz"
         mkdir -p "$REPO/.cache"
         if [ ! -s "$OLLAMA_TGZ" ]; then
-            echo "llama-server (llama.cpp) をダウンロードします (約 150 MB)…"
+            echo "llama-server (llama.cpp b11158) をダウンロードします (約 12 MB)…"
             /usr/bin/curl -fsSL --retry 2 -o "$OLLAMA_TGZ.part" \
-                "https://github.com/ollama/ollama/releases/latest/download/ollama-darwin.tgz" \
+                "https://github.com/ggml-org/llama.cpp/releases/download/b11158/llama-b11158-bin-macos-arm64.tar.gz" \
                 && mv "$OLLAMA_TGZ.part" "$OLLAMA_TGZ" \
                 || { rm -f "$OLLAMA_TGZ.part"
                      echo "警告: llama-server を取得できませんでした。.app からは「用意する」で後から取得できます" >&2; }
@@ -106,9 +104,10 @@ if [ "$MODE" = standalone ]; then
         fi
         if [ -s "$OLLAMA_TGZ" ]; then
             mkdir -p "$RES/ollama"
-            # bsdtar keeps the code-signature metadata; a copy without it is killed on launch
-            /usr/bin/tar xzf "$OLLAMA_TGZ" -C "$RES/ollama"
-            chmod +x "$RES/ollama/llama-server" "$RES/ollama/ollama" 2>/dev/null || true
+            # bsdtar keeps the code-signature metadata; a copy without it is killed on launch.
+            # The archive wraps files in llama-bNNNN/, so strip one component to land them flat.
+            /usr/bin/tar xzf "$OLLAMA_TGZ" -C "$RES/ollama" --strip-components=1
+            chmod +x "$RES/ollama/llama-server" 2>/dev/null || true
         fi
     fi
 

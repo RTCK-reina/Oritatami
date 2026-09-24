@@ -553,8 +553,9 @@ def ask(db: Database, *, thread_id: str | None, mode: str, message: str, workben
     context = build_context(workbench, job, scan, scan_chain)
     user_text = message.strip() if mode == "chat" else f"[{MODE_LABELS[mode]}] {goal}"
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "system", "content": context},
+    # One system message: strict templates (qwen3.5) reject any system role that is
+    # not the very first message, so prompt and context travel in one.
+    messages = [{"role": "system", "content": f"{SYSTEM_PROMPT}\n\n{context}"},
                 *_history_messages(thread),
                 {"role": "user", "content": instruction if mode != "chat" else f"{instruction}\n\n{message}"}]
     used_model = model or get_settings().llm_model

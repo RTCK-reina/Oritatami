@@ -595,7 +595,9 @@ Boltz は別プロセスなので終了時に全て返す。連続実行で太�
 アプリは推論を `llama-server` のプロセスとして自分で管理する（Ollama のような常駐
 デーモンは持たない）。1 プロセスが 1 モデルを面倒見るので、モデル切替は再起動、メモリ解放は
 プロセス終了。会話は OpenAI 互換の `POST /v1/chat/completions` で、構造化出力は
-`response_format` の JSON スキーマで強制する。
+`response_format` の JSON スキーマで強制する（組めないテンプレートでは `json_object` に落とす）。
+ランタイムは上流 llama.cpp のピン留め版（b11158）。Ollama 同梱の `llama-server` は gemma3・
+qwen3.5 のチャットテンプレートを組めない旧フォークなので使わない。
 
 ### 10.1 バイナリの解決順
 
@@ -605,17 +607,20 @@ Boltz は別プロセスなので終了時に全て返す。連続実行で太�
 4. マシンにインストールされているもの（PATH）
 
 `GET /api/llm/status` が `source` として `bundled | downloaded | system | none` のいずれかを返す。
-どれも無い場合は `POST /api/llm/install` で Ollama の公式アーカイブ
-（`ollama-darwin.tgz`、約 153 MB。`llama-server` とランナー一式が入っている）をバックグラウンドで
-取得する。システム全体には何もインストールせず、押されない限り何も始まらない。展開には
+どれも無い場合は `POST /api/llm/install` で上流 llama.cpp のリリースアーカイブ
+（`llama-b11158-bin-macos-arm64.tar.gz`、約 12 MB）をバックグラウンドで取得する。
+システム全体には何もインストールせず、押されない限り何も始まらない。展開には
 `/usr/bin/tar` を使う（コード署名を保つため）。
 
 ### 10.2 モデルの取得とメモリの譲り渡し
 
 モデルは平文の GGUF ファイルで、解決順は 明示パス → `<データディレクトリ>/models` →
 `~/.ollama` の既存ストア（manifest→blob 参照。Ollama で pull 済みのモデルはそのまま使える）。
-ダウンロードは `registry.ollama.ai` へのプレーン HTTP（manifest→blob）で、デーモンなしに
-`name:tag` の表記を保つ。
+ダウンロードは `name:tag` の表記を保ったまま、よく使うモデルは Hugging Face の無認可 GGUF
+（`_KNOWN_MODELS` 表）から直接取り、それ以外は `registry.ollama.ai` の manifest→blob に
+フォールバックする。落とした GGUF はロード前にヘッダ検査し、Ollama フォーク専用の変換
+（gemma3 の layer_norm イプシロン欠落、qwen35 の rope セクション数不一致）は「非互換」と
+判定して再取得を促す — 上流 `llama-server` はそれらをロードできない。
 
 予測ジョブが走っている間は `heavy` フラグが立ち、全ての LLM リクエストが回答し終えた時点で
 サーバーを止める（従来の `keep_alive=0` と同じ契約）。通常利用では 15 分のアイドル経過で
@@ -635,6 +640,9 @@ GGUF ヘッダを直接読んで `capabilities`（`tokenizer.chat_template` 中�
   分割配置され応答不能になった
 - 出力が JSON として読めないときは一度だけ、壊れた出力を見せてスキーマに従う JSON だけを
   出力し直させる。直らなければ従来通りエラーになる
+- `raise_exception` を内蔵するテンプレート（Gemma の発言順チェックなど）では llama-server が
+  JSON スキーマの文法を組めず 400 を返す。その応答を検知したら `json_object` モードに
+  切り替えてやり直す — 妥当な JSON であること自体は強制できる
 
 ---
 

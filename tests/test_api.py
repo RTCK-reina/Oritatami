@@ -418,7 +418,7 @@ def test_every_exchange_is_logged_including_the_autopilots(tmp_path, monkeypatch
     assert {c["origin"] for c in calls} == {"user", "autopilot"}
     assert db.list_llm_calls(origin="autopilot")[0]["mode"] == "mutations"
     prompt = calls[0]["messages"]
-    assert prompt[0]["role"] == "system" and "MQIFVKTLTG" in prompt[1]["content"]
+    assert prompt[0]["role"] == "system" and "MQIFVKTLTG" in prompt[0]["content"]
     assert db.count_llm_calls() == 2
 
 
