@@ -115,7 +115,7 @@ const QUERY_PATHS = ['/api/estimate', '/api/sequence/', '/api/chem/', '/api/comp
  *  endpoint would otherwise let a double-click through, which is the case this exists for. */
 const COOLDOWN_MS = 900;
 
-function guarded<T>(method: string, path: string, body?: unknown): Promise<T> {
+function guarded<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
     const query = QUERY_PATHS.some(prefix => path.startsWith(prefix));
     const key = `${method} ${path} ${body === undefined ? '' : JSON.stringify(body)}`;
     const running = inFlight.get(key);
@@ -123,7 +123,7 @@ function guarded<T>(method: string, path: string, body?: unknown): Promise<T> {
         if (!query) uiEvents.emit('duplicateAction', path);
         return running as Promise<T>;
     }
-    const p = request<T>(method, path, body);
+    const p = request<T>(method, path, body, signal);
     const release = () => {
         if (query) {
             if (inFlight.get(key) === p) inFlight.delete(key);
@@ -147,7 +147,7 @@ export function isBusy(pathPrefix: string): boolean {
 }
 
 const get = <T>(p: string, signal?: AbortSignal) => request<T>('GET', p, undefined, signal);
-const post = <T>(p: string, b?: unknown) => guarded<T>('POST', p, b ?? {});
+const post = <T>(p: string, b?: unknown, signal?: AbortSignal) => guarded<T>('POST', p, b ?? {}, signal);
 const patch = <T>(p: string, b: unknown) => guarded<T>('PATCH', p, b);
 const del = <T>(p: string) => guarded<T>('DELETE', p);
 const q = encodeURIComponent;
@@ -387,6 +387,8 @@ export const api = {
         binary?: string | null; source?: string }>('/api/llm/start'),
     llmInstall: () => post<LlmStatus['install']>('/api/llm/install'),
     llmPull: (model: string) => post<LlmStatus['pull']>('/api/llm/pull', { model }),
+    llmPullCancel: () => post<LlmStatus['pull']>('/api/llm/pull/cancel'),
+    llmChatCancel: () => post<{ cancelled: number }>('/api/llm/chat/cancel'),
 
     mutate: (sequence: string, mutations: string) =>
         post<{ sequence: string; mutations: string[] }>('/api/sequence/mutate', { sequence, mutations }),
@@ -470,8 +472,8 @@ export const api = {
         focus_chain: string | null;
         count: number;
         heavy?: boolean;
-    }) => post<{ thread_id: string; reply: string; proposals: Proposal[]; reply_issues?: string[];
-        corrected?: boolean; model?: string; elapsed_sec: number }>('/api/assistant/ask', body),
+    }, signal?: AbortSignal) => post<{ thread_id: string; reply: string; proposals: Proposal[]; reply_issues?: string[];
+        corrected?: boolean; model?: string; elapsed_sec: number }>('/api/assistant/ask', body, signal),
     searches: (limit = 100) => get<SearchRecord[]>(`/api/searches?limit=${limit}`),
     clearSearches: () => del<{ deleted: number }>('/api/searches'),
     llmCalls: (limit = 50, origin?: 'user' | 'autopilot') =>

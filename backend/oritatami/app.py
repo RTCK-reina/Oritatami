@@ -273,6 +273,17 @@ def llm_pull(body: PullBody) -> dict[str, Any]:
     return llm.start_pull(body.model)
 
 
+@app.post("/api/llm/pull/cancel")
+def llm_pull_cancel() -> dict[str, Any]:
+    return llm.cancel_pull()
+
+
+@app.post("/api/llm/chat/cancel")
+def llm_chat_cancel() -> dict[str, Any]:
+    # Closing the request socket makes llama-server drop the task itself.
+    return {"cancelled": llm.cancel_chats()}
+
+
 # ------------------------------------------------------------------ sequences / chemistry
 class SequenceBody(BaseModel):
     sequence: str

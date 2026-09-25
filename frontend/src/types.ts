@@ -408,6 +408,8 @@ export interface LlmStatus {
     model_available: boolean;
     heavy_model?: string;
     heavy_available?: boolean;
+    /** a memory-hungry prediction is running — the LLM drops right after each reply */
+    heavy_active?: boolean;
     /** false when the configured model's template has no thinking switch */
     thinking_supported?: boolean;
     /** the model's trained context window, when the GGUF reports it */

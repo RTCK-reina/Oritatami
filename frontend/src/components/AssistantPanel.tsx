@@ -44,6 +44,7 @@ export function AssistantPanel({ onCollapse }: { onCollapse?: () => void }) {
     const [thread, setThread] = useState<Thread | null>(null);
     const [threads, setThreads] = useState<Omit<Thread, 'messages'>[]>([]);
     const [busy, setBusy] = useState<{ since: number } | null>(null);
+    const abortRef = useRef<AbortController | null>(null);
     const [, tick] = useState(0);
     const listRef = useRef<HTMLDivElement>(null);
     const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -102,6 +103,7 @@ export function AssistantPanel({ onCollapse }: { onCollapse?: () => void }) {
     const send = async (m: Mode, message: string, jobId: string | null, heavy = false) => {
         if (busy) return;
         setBusy({ since: Date.now() });
+        abortRef.current = new AbortController();
         const optimistic: ChatMessage = { role: 'user', content: m === 'chat' ? message : `[${MODES.find(x => x.id === m)?.label}] ${message}`, mode: m, created_at: Date.now() / 1000 };
         setThread(t => (t ? { ...t, messages: [...t.messages, optimistic] } : { id: '', title: '', created_at: 0, updated_at: 0, messages: [optimistic] }));
         try {
@@ -109,23 +111,36 @@ export function AssistantPanel({ onCollapse }: { onCollapse?: () => void }) {
                 thread_id: threadId, mode: m, message, workbench: buildSpec(workbench),
                 job_id: jobId, scan_job_id: scan?.status === 'succeeded' ? scan.id : null, focus_chain: chain || null, count,
                 heavy,
-            });
+            }, abortRef.current.signal);
             setThreadId(res.thread_id);
             setThread(await api.thread(res.thread_id));
             setText('');
         } catch (e) {
+            const aborted = e instanceof DOMException && e.name === 'AbortError';
             const isGuard = e instanceof ApiError && e.code === 'safeguard';
-            toast(
-                'error',
-                isGuard
-                    ? '⚠️ モデルの安全フィルタが応答を拒否しました。質問の言い回しを変えてみてください'
-                    : `LLM: ${errorMessage(e)}`,
-            );
+            if (aborted) {
+                toast('info', '生成を止めました');
+            } else {
+                toast(
+                    'error',
+                    isGuard
+                        ? '⚠️ モデルの安全フィルタが応答を拒否しました。質問の言い回しを変えてみてください'
+                        : `LLM: ${errorMessage(e)}`,
+                );
+            }
             setThread(t => (t ? { ...t, messages: t.messages.filter(x => x !== optimistic) } : t));
             if (!isGuard) void refreshHealth();
         } finally {
+            abortRef.current = null;
             setBusy(null);
         }
+    };
+
+    const stopChat = () => {
+        // Dropping our socket is what makes llama-server abandon the generation;
+        // the abort just frees the UI.
+        abortRef.current?.abort();
+        void api.llmChatCancel().catch(() => { });
     };
 
     // requests from other panels ("LLM に解説させる") fire once per nonce with the latest workbench
@@ -181,6 +196,11 @@ export function AssistantPanel({ onCollapse }: { onCollapse?: () => void }) {
                 )}
                 {onCollapse && <button type="button" className="icon-btn" onClick={onCollapse} aria-label="LLM パネルを隠す" title="隠す (⌘⇧B)"><Icon name="chevron-right" /></button>}
             </div>
+            {llm?.heavy_active && (
+                <div className="banner">
+                    構造予測の実行中です — 応答のたびに LLM をメモリから降ろすので、予測が終わるまで応答が遅くなります
+                </div>
+            )}
             {llm && (!llm.server || !llm.model_available) && (
                 <div className="banner">
                     {llm.install?.active
@@ -215,7 +235,7 @@ export function AssistantPanel({ onCollapse }: { onCollapse?: () => void }) {
                     </div>
                 )}
                 {thread?.messages.map((m, i) => <MessageView key={`${m.created_at}-${i}`} m={m} />)}
-                {busy && <div className="msg msg-assistant"><Spinner /> 考えています… {Math.round((Date.now() - busy.since) / 1000)} 秒</div>}
+                {busy && <div className="msg msg-assistant"><Spinner /> 考えています… {Math.round((Date.now() - busy.since) / 1000)} 秒 <Button size="sm" onClick={stopChat}>止める</Button></div>}
             </div>
             <div className="composer">
                 <div className="mode-chips">

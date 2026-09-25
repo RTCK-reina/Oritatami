@@ -42,6 +42,10 @@ class TruncatedError(LlmError):
     """The model hit the output budget and the reply is incomplete."""
 
 
+class ChatCancelledError(LlmError):
+    """The user asked the in-flight generation to stop."""
+
+
 class GrammarError(LlmError):
     """The server cannot compile the schema grammar against this chat template.
 
@@ -561,6 +565,11 @@ def _merge_system(messages: list[dict[str, str]]) -> list[dict[str, str]]:
 # ---- model pull (background; Hugging Face for known names, Ollama registry else) --
 _pull_lock = threading.Lock()
 _pull: dict[str, Any] = {"active": False}
+_pull_cancel = threading.Event()
+
+
+class _PullCancelled(Exception):
+    """The user asked the download to stop; lands on pull_state as 'cancelled'."""
 
 _REGISTRY = "https://registry.ollama.ai/v2"
 
@@ -586,6 +595,12 @@ def pull_state() -> dict[str, Any]:
         return dict(_pull)
 
 
+def cancel_pull() -> dict[str, Any]:
+    """Ask the running download to stop at the next chunk boundary."""
+    _pull_cancel.set()
+    return pull_state()
+
+
 def start_pull(model: str) -> dict[str, Any]:
     """Download `name:tag` as a GGUF into the app's models directory.
 
@@ -602,6 +617,7 @@ def start_pull(model: str) -> dict[str, Any]:
         _pull.clear()
         _pull.update({"active": True, "model": model, "status": "接続しています",
                       "completed": 0, "total": 0, "error": None, "started_at": time.time()})
+        _pull_cancel.clear()
 
     def worker() -> None:
         repo, tag = _split_name(model)
@@ -651,6 +667,8 @@ def start_pull(model: str) -> dict[str, Any]:
                         _pull["total"] = total
                 with tmp.open("wb") as fh:
                     for chunk in resp.iter_bytes(chunk_size=1 << 20):
+                        if _pull_cancel.is_set():
+                            raise _PullCancelled()
                         fh.write(chunk)
                         done += len(chunk)
                         with _pull_lock:
@@ -669,6 +687,10 @@ def start_pull(model: str) -> dict[str, Any]:
             with _pull_lock:
                 _pull["status"] = "success"
             log.info("モデル %s をダウンロードしました: %s", model, dest)
+        except _PullCancelled:
+            with _pull_lock:
+                _pull["status"] = "cancelled"
+            tmp.unlink(missing_ok=True)
         except Exception as exc:  # surfaced to the UI through pull_state()
             with _pull_lock:
                 _pull["error"] = str(exc)
@@ -984,7 +1006,8 @@ def status() -> dict[str, Any]:
             "models": models, "heavy_model": heavy,
             "heavy_available": bool(heavy) and _usable_model(heavy),
             "thinking_supported": supports_thinking(s.llm_model),
-            "context_length": context_length(s.llm_model)}
+            "context_length": context_length(s.llm_model),
+            "heavy_active": heavy_active()}
     if not server_up():
         return {"server": False, **base, **where}
     return {"server": True, **base,
@@ -1039,17 +1062,41 @@ def _with_preamble(messages: list[dict[str, str]]) -> list[dict[str, str]]:
     return out
 
 
-def _post_chat(payload: dict[str, Any], timeout: float) -> str:
+# A chat call posts through a per-call httpx.Client registered below so a UI
+# 'stop' can close it mid-request: closing the socket makes llama-server drop the
+# task AND makes the post raise here, which is what turns a cancel into an
+# exception the caller sees instead of a long wait for tokens nobody reads.
+_chat_lock = threading.Lock()
+_chat_clients: list[httpx.Client] = []
+
+
+def cancel_chats() -> int:
+    """Close every in-flight chat request; llama-server drops the work with the socket."""
+    with _chat_lock:
+        clients, _chat_clients[:] = list(_chat_clients), []
+    for client in clients:
+        try:
+            client.close()
+        except Exception:
+            pass
+    return len(clients)
+
+
+def _post_chat(payload: dict[str, Any], timeout: float,
+               client: httpx.Client | None = None) -> str:
     """Low-level /v1/chat/completions call. Returns the content string.
 
     Truncation is reported as its own error. llama-server simply stops at the token
     budget, leaving a half-written reply; downstream that surfaces as an unparseable
     JSON blob and reads like the model misbehaved, when the real cause is the cap.
     """
+    post = client.post if client is not None else httpx.post
     try:
-        r = httpx.post(_url("/v1/chat/completions"), json=payload,
-                       timeout=httpx.Timeout(timeout, connect=10.0))
+        r = post(_url("/v1/chat/completions"), json=payload,
+                 timeout=httpx.Timeout(timeout, connect=10.0))
     except httpx.HTTPError as exc:
+        if client is not None and client.is_closed:
+            raise ChatCancelledError("生成を中断しました") from exc
         raise LlmError(f"llama-server への問い合わせに失敗しました ({exc})") from exc
     if r.status_code >= 400:
         text = r.text[:500]
@@ -1122,28 +1169,35 @@ def chat(messages: list[dict[str, str]], *, schema: dict[str, Any] | None = None
     if merge_system_prompt(name):
         messages = _merge_system(messages)
 
+    client = httpx.Client()
+    with _chat_lock:
+        _chat_clients.append(client)
     try:
         try:
-            content = _post_chat(_build_payload(messages), timeout)
+            content = _post_chat(_build_payload(messages), timeout, client)
         except GrammarError:
             # The template broke the grammar compiler — fall back to json_object,
             # which constrains nothing but JSON-ness itself.
             schema_grammar_ok = False
             log.info("モデル %s のテンプレートではスキーマ文法を組めないため、"
                      "json_object モードで応答します", name)
-            content = _post_chat(_build_payload(messages), timeout)
+            content = _post_chat(_build_payload(messages), timeout, client)
 
         # Detect safety-filter refusals and retry once with academic framing injected.
         if content and _looks_like_refusal(content):
             log.warning("モデルが安全フィルタで拒否しました。学術コンテキストを補足してリトライします")
             retry_messages = _with_preamble(messages)
-            content = _post_chat(_build_payload(retry_messages), timeout)
+            content = _post_chat(_build_payload(retry_messages), timeout, client)
             if content and _looks_like_refusal(content):
                 raise SafeguardError(
                     "モデルの安全フィルタが応答を拒否しました。"
                     "質問の言い回しを変えるか、別のモードをお試しください。"
                 )
     finally:
+        with _chat_lock:
+            if client in _chat_clients:
+                _chat_clients.remove(client)
+        client.close()
         ka = keep_alive_for(keep_alive)
         if ka == 0:
             _stop_server()              # machine-made call during a prediction: drop it

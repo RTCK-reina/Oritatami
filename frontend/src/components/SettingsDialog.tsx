@@ -137,7 +137,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                                 </More>
                             </>}>
                                 <select value={s.llm_model} onChange={e => set('llm_model', e.target.value)}>
-                                    {[...new Set([s.llm_model, ...(llm?.models.map(m => m.name) ?? [])])].map(name => (
+                                    {[...new Set([s.llm_model, ...SUGGESTED, ...(llm?.models.map(m => m.name) ?? [])])].map(name => (
                                         <option key={name} value={name}>{name}{llm?.models.some(m => m.name === name) ? '' : ' (未ダウンロード)'}</option>
                                     ))}
                                 </select>
@@ -151,7 +151,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                             </>}>
                                 <select value={s.llm_model_heavy} onChange={e => set('llm_model_heavy', e.target.value)}>
                                     <option value="">使わない</option>
-                                    {[...new Set([...(s.llm_model_heavy ? [s.llm_model_heavy] : []), ...(llm?.models.map(m => m.name) ?? [])])].map(name => (
+                                    {[...new Set([...(s.llm_model_heavy ? [s.llm_model_heavy] : []), ...SUGGESTED, ...(llm?.models.map(m => m.name) ?? [])])].map(name => (
                                         <option key={name} value={name}>{name}{llm?.models.some(m => m.name === name) ? '' : ' (未ダウンロード)'}</option>
                                     ))}
                                 </select>
@@ -197,8 +197,18 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                             </div>
                             {pull && pull.model && (
                                 <div className="small">
-                                    {pull.model}: {pull.error ? <span className="warn">{pull.error}</span> : pull.status}
+                                    {pull.model}: {pull.error ? <span className="warn">{pull.error}</span> : pull.status === 'cancelled' ? '中止しました' : pull.status}
                                     {pull.total ? ` ${Math.round(((pull.completed ?? 0) / pull.total) * 100)}%` : ''}
+                                    {pull.active && (
+                                        <Button size="sm" onClick={() => void api.llmPullCancel()
+                                            .then(p => setLlm(l => (l ? { ...l, pull: p } : l)))
+                                            .catch(e => toast('error', errorMessage(e)))}>中止</Button>
+                                    )}
+                                    {!pull.active && pull.error && (
+                                        <Button size="sm" onClick={() => void api.llmPull(pull.model ?? '')
+                                            .then(p => setLlm(l => (l ? { ...l, pull: p } : l)))
+                                            .catch(e => toast('error', errorMessage(e)))}>再試行</Button>
+                                    )}
                                     {pull.active && pull.total ? <div className="progress"><i style={{ width: `${((pull.completed ?? 0) / pull.total) * 100}%` }} /></div> : null}
                                 </div>
                             )}

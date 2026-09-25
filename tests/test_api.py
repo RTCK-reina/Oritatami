@@ -553,7 +553,7 @@ def test_think_and_context_window_follow_what_the_model_can_do(monkeypatch):
     monkeypatch.setattr(llm, "model_info", lambda name: info.get(name, {}))
     monkeypatch.setattr(llm, "_ensure_running", lambda name, est_tokens=0.0: None)
     payloads: list[dict] = []
-    monkeypatch.setattr(llm, "_post_chat", lambda payload, timeout: payloads.append(payload) or "")
+    monkeypatch.setattr(llm, "_post_chat", lambda payload, timeout, client=None: payloads.append(payload) or "")
 
     llm.chat([{"role": "user", "content": "hi"}], model="gemma3:4b")
     assert "chat_template_kwargs" not in payloads[-1], "思考に非対応のモデルには送らない"

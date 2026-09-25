@@ -308,7 +308,7 @@ def test_chat_payload_and_spawn_carry_both_caps(monkeypatch):
     seen = {}
     spawns = []
 
-    def fake_post(payload, timeout):
+    def fake_post(payload, timeout, client=None):
         seen.update(payload)
         return '{"reply":"ok","proposals":[]}'
 
@@ -326,7 +326,7 @@ def test_oversized_prompt_is_warned_about(monkeypatch, caplog):
     import logging
 
     from oritatami import llm
-    monkeypatch.setattr(llm, "_post_chat", lambda payload, timeout: "ok")
+    monkeypatch.setattr(llm, "_post_chat", lambda payload, timeout, client=None: "ok")
     monkeypatch.setattr(llm, "_ensure_running", lambda *a, **k: None)
     monkeypatch.setattr(llm, "model_info", lambda name: {})
     huge = "あ" * int(llm.NUM_CTX * llm._CHARS_PER_TOKEN * 0.9)
@@ -357,7 +357,7 @@ def test_truncated_reply_is_its_own_error(monkeypatch):
             return {"choices": [{"finish_reason": "length",
                                  "message": {"content": '{"reply": "切れ'}}]}
 
-    monkeypatch.setattr(httpx, "post", lambda *a, **k: R())
+    monkeypatch.setattr(httpx.Client, "post", lambda *a, **k: R())
     monkeypatch.setattr(llm, "_ensure_running", lambda *a, **k: None)
     monkeypatch.setattr(llm, "model_info", lambda name: {})
     with pytest.raises(llm.TruncatedError):
