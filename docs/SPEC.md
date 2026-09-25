@@ -680,6 +680,8 @@ GGUF ヘッダを直接読んで `capabilities`（`tokenizer.chat_template` 中�
 | `POST` | `/api/jobs/queue/cancel_all` | `{kind?, include_running=false}` | `{cancelled, count}` |
 | `GET` | `/api/jobs/{id}/log` | — | 実行ログ（text/plain） |
 | `GET` | `/api/jobs/{id}/files/{rel}` | — | ジョブディレクトリ内のファイル |
+| `GET` | `/api/jobs/{id}/msa` | — | `{alignments: [{file, query, query_key, depth, columns, coverage[], identity[], sample[]}]}` |
+| `GET` | `/api/jobs/{id}/methods.txt` | `lang=ja\|en` | 再現性メソッド記述（text/plain） |
 | `GET` | `/api/jobs/{id}/structure.pdb` | `model?` | PDB 形式に変換して返す |
 | `GET` | `/api/jobs/{id}/export.zip` | — | 結果一式 |
 | `POST` | `/api/jobs/{id}/export` | — | ダウンロードフォルダに書き出す |
@@ -787,6 +789,7 @@ GGUF ヘッダを直接読んで `capabilities`（`tokenizer.chat_template` 中�
 | `llm_model` | `gemma3:4b` | 常用モデル |
 | `llm_model_heavy` | `""` | 「じっくり答える」用。空なら機能を出さない。自律ループでは使わない |
 | `llm_log_limit` | 5000 | LLM 呼び出しログの保持件数。0 で無効 |
+| `llm_gpu` | true | llama.cpp の `--n-gpu-layers -1`（Metal に全層）。false で CPU 推論。`ORITATAMI_LLAMA_NGPU_LAYERS` が優先 |
 | `esm_model` | `facebook/esm2_t33_650M_UR50D` | 変異スコアリングのモデル |
 | `mps_strict` | false | true で CPU フォールバック時にジョブを失敗させる |
 | `mps_memory_ratio` | 0.0 | MPS アロケータの上限倍率。0 で無制限 |
@@ -796,6 +799,11 @@ GGUF ヘッダを直接読んで `capabilities`（`tokenizer.chat_template` 中�
 | `autopilot_improvement_delta` | 2.0 | 改善とみなす差（pLDDT 換算） |
 | `autopilot_min_esm_llr` | −15.0 | ESM-2 スコアの下限。選抜ではなく極端な裾の切り落とし |
 | `applecare` | false | SSD 摩耗警告の文面だけを変える。動作には影響しない |
+
+UI の表示言語（日本語/English）は settings.json ではなくブラウザの
+`localStorage['oritatami.lang']` に保持し、設定 → アプリ → 言語 で切り替える
+（切替時にアプリを開き直す）。翻訳は `frontend/src/locales/en.ts` の辞書で、
+未定義キーは日本語のまま表示される。
 
 ---
 

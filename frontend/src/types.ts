@@ -360,6 +360,7 @@ export interface Settings {
     llm_log_limit: number;
     llm_think: boolean;
     llm_temperature: number;
+    llm_gpu: boolean;
     boltz_bin: string;
     boltz_cache: string;
     accelerator: string;
@@ -576,4 +577,16 @@ export interface GpuState {
     changed_to_mb?: number;
     restart_required?: boolean;
     persists_across_reboot?: boolean;
+}
+
+/** One protein entity's alignment behind a prediction, from GET /api/jobs/{id}/msa. */
+export interface MsaAlignment {
+    file: string;
+    query: string;
+    query_key: string;
+    depth: number;
+    columns: number;
+    coverage: number[];
+    identity: number[];
+    sample: { key: string; seq: string }[];
 }

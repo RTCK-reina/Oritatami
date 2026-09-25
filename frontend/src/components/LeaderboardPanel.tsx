@@ -4,20 +4,21 @@ import { MutationSpectrum, ProgressChart } from './charts';
 import type { AutopilotStatus, Leaderboard, LeaderboardMetric, LeaderboardRow } from '../api';
 import { useStore } from '../store';
 import { Button, Empty, Icon, Spinner } from './ui';
+import { t } from '../i18n';
 
 const METRIC_LABEL: Record<LeaderboardMetric, string> = {
-    mean_plddt: '平均 pLDDT',
-    core_plddt: 'コア pLDDT',
-    confidence_score: '信頼度スコア',
+    mean_plddt: t('平均 pLDDT'),
+    core_plddt: t('コア pLDDT'),
+    confidence_score: t('信頼度スコア'),
     iptm: 'ipTM',
     ptm: 'pTM',
-    complex_plddt: '複合体 pLDDT',
+    complex_plddt: t('複合体 pLDDT'),
 };
 
 const ORIGIN_BADGE: Record<string, { label: string; cls: string; title: string }> = {
-    user: { label: '手動', cls: 'ob-user', title: 'あなたが投入したジョブ' },
-    autopilot_variant: { label: '自動', cls: 'ob-auto', title: 'オートパイロットが提案から自動生成した変異体' },
-    pdb_watch: { label: 'PDB', cls: 'ob-pdb', title: 'PDB ウォッチャーが新着構造から自動投入' },
+    user: { label: t('手動'), cls: 'ob-user', title: t('あなたが投入したジョブ') },
+    autopilot_variant: { label: t('自動'), cls: 'ob-auto', title: t('オートパイロットが提案から自動生成した変異体') },
+    pdb_watch: { label: 'PDB', cls: 'ob-pdb', title: t('PDB ウォッチャーが新着構造から自動投入') },
 };
 
 /** Metrics where a larger number is better. All current ones are; kept explicit for affinity later. */
@@ -42,7 +43,7 @@ function Delta({ value, metric, comparable = null }:
     const stale = comparable === false;
     return (
         <span className={`lb-delta ${stale ? 'stale' : cls}`}
-            title={stale ? '親と計算条件が違うため、この差は変異の効果ではありません' : '親ジョブとの差'}>
+            title={stale ? t('親と計算条件が違うため、この差は変異の効果ではありません') : t('親ジョブとの差')}>
             {flat ? '±0' : `${sign}${value.toFixed(digits)}`}
         </span>
     );
@@ -59,22 +60,22 @@ function StatusStrip({ status }: { status: AutopilotStatus | null }) {
         <div className={`lb-status ${status.accepting ? '' : 'blocked'}`}>
             <span className="lb-status-main">
                 <Icon name={status.accepting ? 'layers' : 'close'} size={12} />
-                {!status.enabled ? 'オートパイロット停止中'
-                    : continuous ? '連続稼働中' : 'オートパイロット稼働中'}
+                {!status.enabled ? t('オートパイロット停止中')
+                    : continuous ? t('連続稼働中') : t('オートパイロット稼働中')}
             </span>
             {unlimited ? (
-                <span className="lb-budget" title={`順番待ち ${status.queued} / 上限 ${status.max_queued} 件`}>
-                    待機 {status.queued}/{status.max_queued}
+                <span className="lb-budget" title={`${t('順番待ち')} ${status.queued} ${t('/ 上限')} ${status.max_queued} ${t('件')}`}>
+                    {t('待機')} {status.queued}/{status.max_queued}
                     <span className="lb-bar"><i style={{ width: `${pct}%` }} /></span>
                 </span>
             ) : (
-                <span className="lb-budget" title={`本日の自律ジョブ ${status.used_today} / ${status.daily_budget} 件`}>
-                    自律枠 {status.used_today}/{status.daily_budget}
+                <span className="lb-budget" title={`${t('本日の自律ジョブ')} ${status.used_today} / ${status.daily_budget} ${t('件')}`}>
+                    {t('自律枠')} {status.used_today}/{status.daily_budget}
                     <span className="lb-bar"><i style={{ width: `${pct}%` }} /></span>
                 </span>
             )}
             <span className="small muted">
-                {continuous ? '世代 無制限' : `世代 上限 ${status.max_depth}`} · 本日 {status.used_today} 件 · 空き {status.disk_free_gb} GB
+                {continuous ? t('世代 無制限') : `${t('世代 上限')} ${status.max_depth}`} {t('· 本日')} {status.used_today} {t('件 · 空き')} {status.disk_free_gb} GB
             </span>
             {status.blocked_reason && <span className="small warn">{status.blocked_reason}</span>}
         </div>
@@ -193,7 +194,7 @@ export function LeaderboardPanel() {
                 className={`lb-row ${selectedJobId === r.id ? 'is-selected' : ''} ${best ? 'is-best' : ''}`}
                 style={depth ? { paddingLeft: 8 + depth * 16 } : undefined}
                 onClick={() => openJob(r.id)}
-                title={r.parent_title ? `親: ${r.parent_title}` : undefined}
+                title={r.parent_title ? `${t('親:')} ${r.parent_title}` : undefined}
             >
                 {view === 'rank' && <span className="lb-rank">{r.rank}</span>}
                 {view === 'tree' && depth > 0 && <span className="lb-branch" aria-hidden>└</span>}
@@ -202,9 +203,9 @@ export function LeaderboardPanel() {
                     <span className="lb-meta">
                         <span className={`ob ${badge.cls}`} title={badge.title}>{badge.label}</span>
                         {r.mutations.length > 0 && <span className="lb-muts mono">{r.mutations.join(' ')}</span>}
-                        {best && <span className="ob ob-best" title="この指標での最良">最良</span>}
+                        {best && <span className="ob ob-best" title={t('この指標での最良')}>{t('最良')}</span>}
                         {data?.conditions?.mixed && r.regime && (
-                            <span className="ob ob-regime" title={`計算条件: ${r.regime_label}`}>{r.regime}</span>
+                            <span className="ob ob-regime" title={`${t('計算条件:')} ${r.regime_label}`}>{r.regime}</span>
                         )}
                     </span>
                 </span>
@@ -224,22 +225,22 @@ export function LeaderboardPanel() {
     return (
         <div className="panel leaderboard">
             <div className="panel-head lb-head">
-                <select value={metric} onChange={e => setMetric(e.target.value as LeaderboardMetric)} aria-label="並べ替える指標">
+                <select value={metric} onChange={e => setMetric(e.target.value as LeaderboardMetric)} aria-label={t('並べ替える指標')}>
                     {(data?.metrics ?? ['mean_plddt']).map(m => (
                         <option key={m} value={m}>{METRIC_LABEL[m] ?? m}</option>
                     ))}
                 </select>
-                <div className="seg seg-sm" role="radiogroup" aria-label="表示形式">
+                <div className="seg seg-sm" role="radiogroup" aria-label={t('表示形式')}>
                     <button type="button" role="radio" aria-checked={view === 'rank'}
-                        className={view === 'rank' ? 'active' : ''} onClick={() => setView('rank')}>順位</button>
+                        className={view === 'rank' ? 'active' : ''} onClick={() => setView('rank')}>{t('順位')}</button>
                     <button type="button" role="radio" aria-checked={view === 'tree'}
-                        className={view === 'tree' ? 'active' : ''} onClick={() => setView('tree')}>系統</button>
+                        className={view === 'tree' ? 'active' : ''} onClick={() => setView('tree')}>{t('系統')}</button>
                     <button type="button" role="radio" aria-checked={view === 'pareto'}
-                        className={view === 'pareto' ? 'active' : ''} onClick={() => setView('pareto')}>費用対効果</button>
+                        className={view === 'pareto' ? 'active' : ''} onClick={() => setView('pareto')}>{t('費用対効果')}</button>
                     <button type="button" role="radio" aria-checked={view === 'progress'}
-                        className={view === 'progress' ? 'active' : ''} onClick={() => setView('progress')}>推移</button>
+                        className={view === 'progress' ? 'active' : ''} onClick={() => setView('progress')}>{t('推移')}</button>
                 </div>
-                <Button size="sm" variant="ghost" onClick={() => void load(metric)} title="再読み込み">
+                <Button size="sm" variant="ghost" onClick={() => void load(metric)} title={t('再読み込み')}>
                     <Icon name="retry" size={13} />
                 </Button>
             </div>
@@ -248,27 +249,27 @@ export function LeaderboardPanel() {
 
             {data?.conditions?.mixed && (
                 <div className="lb-mixed small">
-                    <strong>計算条件が混ざっています。</strong>
-                    {data.conditions.regimes.map(g => `${g.label} ${g.count} 件`).join(' / ')}。
-                    Boltz が返すのは分子の性質ではなく予測の自信なので、MSA の取り方やサンプル数が違うと
-                    同じ配列でも点が動きます (この履歴では最大 1.9、改善の判定幅 0.5 の約 4 倍)。
-                    条件をまたいだ差は下のように打ち消し線で表示し、改善件数からも除いてあります。
+                    <strong>{t('計算条件が混ざっています。')}</strong>
+                    {data.conditions.regimes.map(g => `${g.label} ${g.count} ${t('件')}`).join(' / ')}{t('。')}
+                    {t('Boltz が返すのは分子の性質ではなく予測の自信なので、MSA の取り方やサンプル数が違うと')}
+                    {t('同じ配列でも点が動きます (この履歴では最大 1.9、改善の判定幅 0.5 の約 4 倍)。')}
+                    {t('条件をまたいだ差は下のように打ち消し線で表示し、改善件数からも除いてあります。')}
                 </div>
             )}
 
             <label className="inline-toggle small lb-filter">
                 <input type="checkbox" checked={onlyImproved} onChange={e => setOnlyImproved(e.target.checked)} />
-                親を上回ったものだけ表示
+                {t('親を上回ったものだけ表示')}
                 {data && <span className="muted"> ({data.improved_count} / {data.count}
-                    {data.returned < data.count ? ` — 上位 ${data.returned} 件を表示` : ''})</span>}
+                    {data.returned < data.count ? ` ${t('— 上位')} ${data.returned} ${t('件を表示')}` : ''})</span>}
             </label>
 
             <div className="panel-scroll lb-body">
                 {loading && !data ? <Spinner /> : rows.length === 0 ? (
                     <Empty>
                         {onlyImproved
-                            ? '親を上回った変異体はまだありません。'
-                            : '完了した構造予測がまだありません。予測を実行すると、ここにスコア順で並びます。'}
+                            ? t('親を上回った変異体はまだありません。')
+                            : t('完了した構造予測がまだありません。予測を実行すると、ここにスコア順で並びます。')}
                     </Empty>
                 ) : view === 'rank' ? (
                     rows.map(r => <Row key={r.id} r={r} />)
@@ -277,14 +278,14 @@ export function LeaderboardPanel() {
                 ) : view === 'pareto' ? (
                     <div className="lb-pareto">
                         <p className="small muted">
-                            変異の数ごとに、そのスコアを超えるものがもっと少ない変異では出ていない、という組み合わせだけを並べています。
-                            1 本の順位表では「16 変異で +0.9」と「2 変異で +0.7」が隣に並んでしまい、同じ成果に見えてしまうため。
-                            比べるのは同じ系統の中だけです (別の分子と変異数を比べても意味がないので)。
+                            {t('変異の数ごとに、そのスコアを超えるものがもっと少ない変異では出ていない、という組み合わせだけを並べています。')}
+                            {t('1 本の順位表では「16 変異で +0.9」と「2 変異で +0.7」が隣に並んでしまい、同じ成果に見えてしまうため。')}
+                            {t('比べるのは同じ系統の中だけです (別の分子と変異数を比べても意味がないので)。')}
                         </p>
-                        {front.length === 0 ? <Empty>まだ前線を引けるだけの結果がありません。</Empty>
+                        {front.length === 0 ? <Empty>{t('まだ前線を引けるだけの結果がありません。')}</Empty>
                             : front.map(r => (
                                 <div key={r.id} className="lb-front-row">
-                                    <span className="lb-front-n mono">{r.mutations.length} 変異</span>
+                                    <span className="lb-front-n mono">{r.mutations.length} {t('変異')}</span>
                                     <Row r={r} />
                                 </div>
                             ))}
@@ -293,12 +294,12 @@ export function LeaderboardPanel() {
                     <div className="lb-progress">
                         <ProgressChart points={progress} label={METRIC_LABEL[metric]}
                             onPick={openJob} selected={selectedJobId} />
-                        <h4 className="small">どの残基を書き換えてきたか</h4>
+                        <h4 className="small">{t('どの残基を書き換えてきたか')}</h4>
                         <MutationSpectrum counts={spectrum.counts} length={spectrum.length}
                             protected={spectrum.fixed} />
                         <p className="small muted">
-                            {progress.length} 件の試行のうち {improvedCount} 件が親を上回りました。
-                            最高値は {progress.length ? Math.max(...progress.map(p => p.score)).toFixed(2) : '—'}。
+                            {progress.length} {t('件の試行のうち')} {improvedCount} {t('件が親を上回りました。')}
+                            {t('最高値は')} {progress.length ? Math.max(...progress.map(p => p.score)).toFixed(2) : '—'}{t('。')}
                         </p>
                     </div>
                 )}

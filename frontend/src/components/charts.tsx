@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { useAppliedTheme } from '../hooks';
 import type { PaeSegment } from '../types';
 import { AA_INFO, AMINO_ACIDS, llrColor, plddtColor } from '../workbench';
+import { t } from '../i18n';
 
 /** Predicted aligned error: low (confident) = dark green, high = white. */
 export const PaeHeatmap = memo(function PaeHeatmap({ matrix, factor, segments, size }: { matrix: number[][]; factor: number; segments: PaeSegment[] | null; size: number }) {
@@ -54,7 +55,7 @@ export const PaeHeatmap = memo(function PaeHeatmap({ matrix, factor, segments, s
             </div>
             <div className="pae-side small">
                 <div className="pae-scale"><span>0 Å</span><i /><span>30 Å</span></div>
-                <p className="muted">行の残基を基準に重ねたとき、列の残基の位置が何 Å ずれると予測されるか。チェーン間のブロックが暗いほど、相対配置に自信がある。</p>
+                <p className="muted">{t('行の残基を基準に重ねたとき、列の残基の位置が何 Å ずれると予測されるか。チェーン間のブロックが暗いほど、相対配置に自信がある。')}</p>
                 {segments && <div className="kv">{segments.map(s => <span key={s.chain}>{s.chain}: {s.end - s.start}</span>)}</div>}
                 <div className="mono">{tip ?? ' '}</div>
             </div>
@@ -79,7 +80,7 @@ export const PlddtPlot = memo(function PlddtPlot({ series, mutated, onPick }: {
                 const path = s.values.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('');
                 return (
                     <div key={s.chain} className="plddt-plot">
-                        <div className="small">チェーン {s.chain} · 平均 {(s.values.reduce((a, b) => a + b, 0) / Math.max(1, n)).toFixed(1)}</div>
+                        <div className="small">{t('チェーン')} {s.chain} {t('· 平均')} {(s.values.reduce((a, b) => a + b, 0) / Math.max(1, n)).toFixed(1)}</div>
                         <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
                             onClick={e => {
                                 if (!onPick) return;
@@ -160,7 +161,7 @@ export const ScanHeatmap = memo(function ScanHeatmap({ sequence, matrix, highlig
                             const j = Math.floor((e.clientY - r.top) / cell);
                             if (i < 0 || j < 0 || i >= L || j >= 20) return;
                             const aa = AMINO_ACIDS[j];
-                            setTip(aa === sequence[i] ? `${sequence[i]}${i + 1} (元の残基)` : `${sequence[i]}${i + 1}${aa} ${AA_INFO[aa].name}  LLR ${matrix[i][j] > 0 ? '+' : ''}${matrix[i][j].toFixed(2)}`);
+                            setTip(aa === sequence[i] ? `${sequence[i]}${i + 1} ${t('(元の残基)')}` : `${sequence[i]}${i + 1}${aa} ${AA_INFO[aa].name}  LLR ${matrix[i][j] > 0 ? '+' : ''}${matrix[i][j].toFixed(2)}`);
                         }}
                         onMouseLeave={() => setTip(null)}
                         onClick={e => {
@@ -178,8 +179,8 @@ export const ScanHeatmap = memo(function ScanHeatmap({ sequence, matrix, highlig
                 </div>
             </div>
             <div className="scan-foot small">
-                <span className="scale"><i style={{ background: llrColor(-6) }} />不自然 <i style={{ background: llrColor(0) }} />0 <i style={{ background: llrColor(6) }} />自然</span>
-                <span className="mono">{tip ?? 'セルをクリックすると、その変異を作業台に入れます'}</span>
+                <span className="scale"><i style={{ background: llrColor(-6) }} />{t('不自然')} <i style={{ background: llrColor(0) }} />0 <i style={{ background: llrColor(6) }} />{t('自然')}</span>
+                <span className="mono">{tip ?? t('セルをクリックすると、その変異を作業台に入れます')}</span>
             </div>
         </div>
     );
@@ -196,7 +197,7 @@ export const ProgressChart = memo(function ProgressChart(
 ) {
     const [tip, setTip] = useState<string | null>(null);
     const W = 520, H = 168, PAD = { l: 44, r: 10, t: 12, b: 34 };
-    if (points.length < 2) return <p className="small muted">推移を描くには予測が 2 件以上必要です。</p>;
+    if (points.length < 2) return <p className="small muted">{t('推移を描くには予測が 2 件以上必要です。')}</p>;
 
     const lo = Math.min(...points.map(p => p.score));
     const hi = Math.max(...points.map(p => p.score));
@@ -213,7 +214,7 @@ export const ProgressChart = memo(function ProgressChart(
     const ticks = [lo, lo + span / 2, hi];
     return (
         <div className="progress-chart">
-            <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${label}の推移`}>
+            <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${label}${t('の推移')}`}>
                 {ticks.map(v => (
                     <g key={v}>
                         <line x1={PAD.l} x2={W - PAD.r} y1={y(v)} y2={y(v)} className="grid" />
@@ -224,14 +225,14 @@ export const ProgressChart = memo(function ProgressChart(
                 {points.map((p, i) => (
                     <circle key={p.id} cx={x(i)} cy={y(p.score)} r={p.id === selected ? 4 : 2.2}
                         className={`dot${p.id === selected ? ' on' : ''}`}
-                        onMouseEnter={() => setTip(`${p.title} — ${p.score.toFixed(2)} (世代 ${p.depth})`)}
+                        onMouseEnter={() => setTip(`${p.title} — ${p.score.toFixed(2)} ${t('(世代')} ${p.depth})`)}
                         onMouseLeave={() => setTip(null)}
                         onClick={() => onPick?.(p.id)} />
                 ))}
-                <text x={PAD.l} y={H - 6} className="axis">古い</text>
-                <text x={W - PAD.r} y={H - 6} className="axis" textAnchor="end">新しい</text>
+                <text x={PAD.l} y={H - 6} className="axis">{t('古い')}</text>
+                <text x={W - PAD.r} y={H - 6} className="axis" textAnchor="end">{t('新しい')}</text>
             </svg>
-            <div className="small muted mono">{tip ?? `${label} — 折れ線はその時点での最高値`}</div>
+            <div className="small muted mono">{tip ?? `${label} ${t('— 折れ線はその時点での最高値')}`}</div>
         </div>
     );
 });
@@ -257,12 +258,52 @@ export const MutationSpectrum = memo(function MutationSpectrum(
                     return (
                         <span key={pos} className={`bar${isFixed ? ' fixed' : ''}`}
                             style={{ ['--h' as string]: `${Math.round((n / max) * 100)}%` }}
-                            onMouseEnter={() => setTip(`${pos} 番: ${n} 回${isFixed ? ' (変更禁止)' : ''}`)}
+                            onMouseEnter={() => setTip(`${pos} ${t('番:')} ${n} ${t('回')}${isFixed ? t(' (変更禁止)') : ''}`)}
                             onMouseLeave={() => setTip(null)} />
                     );
                 })}
             </div>
-            <div className="small muted mono">{tip ?? `残基ごとの変更回数 (最多 ${max} 回)`}</div>
+            <div className="small muted mono">{tip ?? `${t('残基ごとの変更回数 (最多')} ${max} ${t('回)')}`}</div>
+        </div>
+    );
+});
+
+/** MSA support per column: the share of hits carrying a residue (area) and how often it
+ * matches the query (line). Thin coverage is where the alignment stops backing the model. */
+export const MsaCoverage = memo(function MsaCoverage({ coverage, identity }: { coverage: number[]; identity: number[] }) {
+    const [tip, setTip] = useState<string | null>(null);
+    const n = coverage.length;
+    const W = 520, H = 96, PAD = { l: 44, r: 10, t: 10, b: 20 };
+    if (!n) return null;
+    const x = (i: number) => PAD.l + (i / Math.max(1, n - 1)) * (W - PAD.l - PAD.r);
+    const y = (v: number) => PAD.t + (1 - Math.min(1, Math.max(0, v))) * (H - PAD.t - PAD.b);
+    const area = `M${x(0).toFixed(1)},${y(0).toFixed(1)} ` +
+        coverage.map((v, i) => `L${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ') +
+        ` L${x(n - 1).toFixed(1)},${y(0).toFixed(1)} Z`;
+    const idLine = identity.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+    const mean = (arr: number[]) => Math.round((arr.reduce((a, b) => a + b, 0) / n) * 100);
+    return (
+        <div className="progress-chart msa-coverage">
+            <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={t('MSA の被覆率')}
+                onMouseMove={e => {
+                    const svg = e.currentTarget;
+                    const r = svg.getBoundingClientRect();
+                    const i = Math.round((((e.clientX - r.left) / r.width) * W - PAD.l) / (W - PAD.l - PAD.r) * (n - 1));
+                    setTip(i >= 0 && i < n ? `${t('列')} ${i + 1}${t(': 被覆')} ${(coverage[i] * 100).toFixed(0)}${t('% · 一致')} ${(identity[i] * 100).toFixed(0)}%` : null);
+                }}
+                onMouseLeave={() => setTip(null)}>
+                {[0.5, 1].map(v => (
+                    <g key={v}>
+                        <line x1={PAD.l} x2={W - PAD.r} y1={y(v)} y2={y(v)} className="grid" />
+                        <text x={PAD.l - 6} y={y(v) + 3} className="axis" textAnchor="end">{v * 100}%</text>
+                    </g>
+                ))}
+                <path d={area} className="msa-fill" />
+                <path d={idLine} className="best-line" />
+                <text x={PAD.l} y={H - 4} className="axis">1</text>
+                <text x={W - PAD.r} y={H - 4} className="axis" textAnchor="end">{n}</text>
+            </svg>
+            <div className="small muted mono">{tip ?? `${t('平均: 被覆')} ${mean(coverage)}${t('% · 一致')} ${mean(identity)}%`}</div>
         </div>
     );
 });

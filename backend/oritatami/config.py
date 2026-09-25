@@ -106,6 +106,10 @@ class Settings:
     llm_log_limit: int = 5000
     llm_think: bool = False
     llm_temperature: float = 0.6
+    # llama.cpp --n-gpu-layers -1 (the whole model on Metal). Off runs the LLM on the CPU
+    # only — slower, but the right answer on machines whose GPU is slower than their CPU
+    # (a virtualised Metal device is ~45x worse) or too small for the model.
+    llm_gpu: bool = True
     # Structure prediction (Boltz-2)
     boltz_bin: str = ""  # empty = the boltz next to the running interpreter
     boltz_cache: str = str(Path.home() / ".boltz")
@@ -286,7 +290,8 @@ _LABELS = {
     "autopilot_protect_interfaces": "界面の残基を保護する",
     "mpnn_enabled": "逆折り畳みで確認する",
     "mpnn_veto": "逆折り畳みの却下ライン",
-    "llm_temperature": "温度", "ollama_url": "llama-server URL",
+    "llm_temperature": "温度", "llm_gpu": "LLM を GPU で実行する",
+    "ollama_url": "llama-server URL",
     "msa_server_url": "MSA サーバー", "esm_model": "ESM-2 のモデル",
     "boltz_cache": "キャッシュ (重み・化学辞書)",
     "autopilot_protected_residues": "変更を禁止する残基",

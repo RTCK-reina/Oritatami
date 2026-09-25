@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode, type MouseEvent as ReactMouseEvent } from 'react';
 import { comboLabel } from '../hooks';
 import { uiEvents } from '../uiEvents';
+import { t } from '../i18n';
 
 /** How long a pressed button stays shut after a handler that finishes immediately. Long enough
  *  to swallow the second press of a double-click, short enough not to feel stuck. */
@@ -61,7 +62,7 @@ export function Button({ variant = 'default', size = 'md', className = '', onCli
 }
 
 export function Spinner({ size = 14 }: { size?: number }) {
-    return <span className="spinner" style={{ width: size, height: size }} role="status" aria-label="処理中" />;
+    return <span className="spinner" style={{ width: size, height: size }} role="status" aria-label={t('処理中')} />;
 }
 
 export function Modal({ title, onClose, children, wide = false, className = '' }:
@@ -89,7 +90,7 @@ export function Modal({ title, onClose, children, wide = false, className = '' }
             <div ref={ref} tabIndex={-1} className={`modal ${wide ? 'modal-wide' : ''} ${className}`} role="dialog" aria-modal="true" aria-label={title}>
                 <div className="modal-head">
                     <h2>{title}</h2>
-                    <button type="button" className="icon-btn" onClick={onClose} aria-label="閉じる"><Icon name="close" /></button>
+                    <button type="button" className="icon-btn" onClick={onClose} aria-label={t('閉じる')}><Icon name="close" /></button>
                 </div>
                 <div className="modal-body">{children}</div>
             </div>
@@ -136,7 +137,7 @@ export function Metric({ label, value, tone, hint, term }: { label: string; valu
 }
 
 export function StatusDot({ status }: { status: string }) {
-    const label: Record<string, string> = { queued: '待機中', running: '実行中', succeeded: '完了', failed: '失敗', cancelled: 'キャンセル' };
+    const label: Record<string, string> = { queued: t('待機中'), running: t('実行中'), succeeded: t('完了'), failed: t('失敗'), cancelled: t('キャンセル') };
     return <span className={`status-dot status-${status}`} role="img" aria-label={label[status] ?? status} />;
 }
 
@@ -144,22 +145,22 @@ export function Kbd({ combo }: { combo: string }) {
     return <kbd className="kbd">{comboLabel(combo)}</kbd>;
 }
 
-export const TYPE_LABEL: Record<string, string> = { protein: 'タンパク質', dna: 'DNA', rna: 'RNA', ligand: 'リガンド' };
+export const TYPE_LABEL: Record<string, string> = { protein: t('タンパク質'), dna: 'DNA', rna: 'RNA', ligand: t('リガンド') };
 
 /** Short explanations of the numbers the app shows. Used by InfoTip and the help dialog. */
 export const GLOSSARY: Record<string, { title: string; body: string }> = {
-    plddt: { title: 'pLDDT', body: '残基ごとの「この部分の形にどれだけ自信があるか」(0–100)。90 以上はとても高く、50 未満はその部分がほどけているか予測できていない可能性が高い。' },
-    ptm: { title: 'pTM', body: '全体の折りたたみ方 (トポロジー) の信頼度 (0–1)。0.5 以上なら全体の形はおおむね正しい見込み。' },
-    iptm: { title: 'ipTM', body: 'チェーン同士の相対的な位置関係の信頼度 (0–1)。0.8 以上なら結合の仕方に自信あり、0.6 未満は当てにならない。' },
-    pae: { title: 'PAE (予測位置誤差)', body: 'ある残基を基準に重ねたとき、別の残基の位置が何 Å ずれると予測されるか。暗い (小さい) ほど相対配置に自信がある。ドメインやチェーンのブロック構造が読み取れる。' },
-    confidence: { title: '総合信頼度', body: 'Boltz がサンプルを並べる基準。おおよそ 0.8 × 平均 pLDDT + 0.2 × ipTM (単鎖では pTM)。' },
-    affinity: { title: '結合親和性', body: '「結合する確率」は結合する分子かどうかの判別、「IC50」は結合する分子の中での強さの目安。どちらも予測値で、実験値の代わりにはならない。' },
-    llr: { title: 'LLR (ESM-2)', body: '言語モデル ESM-2 が、元のアミノ酸と比べてその置換をどれだけ「自然」と見なすかの対数尤度比。プラスほど自然。安定化や機能向上を保証するものではない。' },
-    pppl: { title: '疑似パープレキシティ', body: 'ESM-2 から見た配列全体の不自然さ。低いほど天然のタンパク質らしい配列。設計配列の良し悪しの目安に使う。' },
-    msa: { title: 'MSA', body: '似た配列を集めた多重配列アラインメント。進化の情報で精度が上がる。ColabFold の公開サーバーに配列が送られる。設計した新しい配列では「単一配列」が向く。' },
-    rmsd: { title: 'RMSD', body: '2 つの構造を重ねたときの Cα 原子の平均的なずれ (Å)。1 Å 未満はほぼ同じ形、3 Å を超えると形がはっきり違う。' },
-    clashscore: { title: '原子の衝突', body: '重なってはいけない原子どうしが、ファンデルワールス半径から 0.4 Å 以上食い込んでいる箇所の数 (1000 原子あたり)。水素結合ぶんの 0.6 Å は差し引いてあるので、塩橋は数えない。物理補正 (use_potentials) を切ると増える。この機械で出た構造は中央値 0、9 割が 5 未満。' },
-    tokens: { title: 'トークン', body: 'Boltz が扱う単位。タンパク質・核酸は 1 残基 1 トークン、リガンドは重原子 1 個 1 トークン。多いほど時間とメモリを使う。' },
+    plddt: { title: 'pLDDT', body: t('残基ごとの「この部分の形にどれだけ自信があるか」(0–100)。90 以上はとても高く、50 未満はその部分がほどけているか予測できていない可能性が高い。') },
+    ptm: { title: 'pTM', body: t('全体の折りたたみ方 (トポロジー) の信頼度 (0–1)。0.5 以上なら全体の形はおおむね正しい見込み。') },
+    iptm: { title: 'ipTM', body: t('チェーン同士の相対的な位置関係の信頼度 (0–1)。0.8 以上なら結合の仕方に自信あり、0.6 未満は当てにならない。') },
+    pae: { title: t('PAE (予測位置誤差)'), body: t('ある残基を基準に重ねたとき、別の残基の位置が何 Å ずれると予測されるか。暗い (小さい) ほど相対配置に自信がある。ドメインやチェーンのブロック構造が読み取れる。') },
+    confidence: { title: t('総合信頼度'), body: t('Boltz がサンプルを並べる基準。おおよそ 0.8 × 平均 pLDDT + 0.2 × ipTM (単鎖では pTM)。') },
+    affinity: { title: t('結合親和性'), body: t('「結合する確率」は結合する分子かどうかの判別、「IC50」は結合する分子の中での強さの目安。どちらも予測値で、実験値の代わりにはならない。') },
+    llr: { title: 'LLR (ESM-2)', body: t('言語モデル ESM-2 が、元のアミノ酸と比べてその置換をどれだけ「自然」と見なすかの対数尤度比。プラスほど自然。安定化や機能向上を保証するものではない。') },
+    pppl: { title: t('疑似パープレキシティ'), body: t('ESM-2 から見た配列全体の不自然さ。低いほど天然のタンパク質らしい配列。設計配列の良し悪しの目安に使う。') },
+    msa: { title: 'MSA', body: t('似た配列を集めた多重配列アラインメント。進化の情報で精度が上がる。ColabFold の公開サーバーに配列が送られる。設計した新しい配列では「単一配列」が向く。') },
+    rmsd: { title: 'RMSD', body: t('2 つの構造を重ねたときの Cα 原子の平均的なずれ (Å)。1 Å 未満はほぼ同じ形、3 Å を超えると形がはっきり違う。') },
+    clashscore: { title: t('原子の衝突'), body: t('重なってはいけない原子どうしが、ファンデルワールス半径から 0.4 Å 以上食い込んでいる箇所の数 (1000 原子あたり)。水素結合ぶんの 0.6 Å は差し引いてあるので、塩橋は数えない。物理補正 (use_potentials) を切ると増える。この機械で出た構造は中央値 0、9 割が 5 未満。') },
+    tokens: { title: t('トークン'), body: t('Boltz が扱う単位。タンパク質・核酸は 1 残基 1 トークン、リガンドは重原子 1 個 1 トークン。多いほど時間とメモリを使う。') },
 };
 
 export function InfoTip({ term }: { term: string }) {
@@ -168,7 +169,7 @@ export function InfoTip({ term }: { term: string }) {
     if (!entry) return null;
     return (
         <span className="infotip" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
-            <button type="button" className="infotip-btn" aria-label={`${entry.title} の説明`} onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}
+            <button type="button" className="infotip-btn" aria-label={`${entry.title} ${t('の説明')}`} onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}
                 onClick={e => { e.stopPropagation(); setOpen(o => !o); }}>?</button>
             {open && <span className="infotip-pop" role="tooltip"><strong>{entry.title}</strong>{entry.body}</span>}
         </span>

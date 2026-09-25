@@ -4,6 +4,7 @@ import { EmptyLoci } from 'molstar/lib/mol-model/loci';
 import type { StateObjectSelector } from 'molstar/lib/mol-state';
 import type { PluginStateObject } from 'molstar/lib/mol-plugin-state/objects';
 import { PluginContext } from 'molstar/lib/mol-plugin/context';
+import { t } from '../i18n';
 import { DefaultPluginSpec } from 'molstar/lib/mol-plugin/spec';
 import { PluginConfig } from 'molstar/lib/mol-plugin/config';
 import { PluginCommands } from 'molstar/lib/mol-plugin/commands';
@@ -80,7 +81,7 @@ export class Viewer {
         const plugin = new PluginContext(spec);
         await plugin.init();
         const ok = await plugin.mountAsync(target, { checkeredCanvasBackground: false });
-        if (!ok) throw new Error('WebGL を初期化できませんでした');
+        if (!ok) throw new Error(t('WebGL を初期化できませんでした'));
         plugin.representation.structure.themes.colorThemeRegistry.add(PlddtBFactorColorThemeProvider);
         await PluginCommands.Canvas3D.SetSettings(plugin, {
             settings: props => {
@@ -369,7 +370,7 @@ export class Viewer {
 
     async screenshot(opts: { resolution?: 'viewport' | 'full-hd' | 'ultra-hd'; transparent?: boolean } = {}): Promise<string> {
         const helper = this.need().helpers.viewportScreenshot;
-        if (!helper) throw new Error('スクリーンショット機能を利用できません');
+        if (!helper) throw new Error(t('スクリーンショット機能を利用できません'));
         const previous = helper.values;
         helper.behaviors.values.next({
             ...previous,

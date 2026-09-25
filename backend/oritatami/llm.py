@@ -739,6 +739,7 @@ _proc: subprocess.Popen | None = None
 _proc_model: str | None = None
 _proc_path: Path | None = None
 _proc_ctx: int = 0
+_proc_gpu: int = -1
 _proc_lock = threading.Lock()
 _reap_timer: threading.Timer | None = None
 _spawn_log = "llama-server.log"
@@ -772,20 +773,27 @@ def _needed_ctx(name: str, est_tokens: float) -> int:
     return min(want, trained)
 
 
+def _gpu_layers() -> str:
+    """--n-gpu-layers value: -1 = every layer on GPU. An environment override exists for
+    machines where the GPU is slower than the CPU (a virtualised Metal device reports
+    ~45x worse); otherwise the llm_gpu setting decides."""
+    env = os.environ.get("ORITATAMI_LLAMA_NGPU_LAYERS")
+    if env is not None:
+        return env
+    return "-1" if get_settings().llm_gpu else "0"
+
+
 def _argv(binary: str, path: Path, name: str, ctx: int) -> list[str]:
     host, port = _listen()
-    # -1 = every layer on GPU. An environment override exists for machines where the GPU
-    # is slower than the CPU (a virtualised Metal device reports ~45x worse).
-    gpu_layers = os.environ.get("ORITATAMI_LLAMA_NGPU_LAYERS", "-1")
     return [binary, "--model", str(path), "--alias", name,
             "--host", host, "--port", str(port),
-            "--ctx-size", str(ctx), "--n-gpu-layers", gpu_layers,
+            "--ctx-size", str(ctx), "--n-gpu-layers", _gpu_layers(),
             "--jinja", "--no-webui"]
 
 
 def _spawn(binary: str, resolved: dict[str, Any], ctx: int) -> None:
     """Start llama-server for one model and wait for /health. Caller holds _proc_lock."""
-    global _proc, _proc_model, _proc_path, _proc_ctx
+    global _proc, _proc_model, _proc_path, _proc_ctx, _proc_gpu
     log_file = (app_home() / _spawn_log).open("a")
     try:
         proc = subprocess.Popen(_argv(binary, resolved["path"], resolved["name"], ctx),
@@ -795,6 +803,7 @@ def _spawn(binary: str, resolved: dict[str, Any], ctx: int) -> None:
         raise LlmError(f"{binary} を起動できませんでした ({exc})。"
                        "設定で場所を指定するか、取得し直してください") from exc
     _proc, _proc_model, _proc_path, _proc_ctx = proc, resolved["name"], resolved["path"], ctx
+    _proc_gpu = int(_gpu_layers())
     log.info("llama-server を起動しました: %s (ctx %d)", resolved["name"], ctx)
     deadline = time.time() + 180.0   # multi-GB load + Metal shader compile takes a while
     while time.time() < deadline:
@@ -805,7 +814,7 @@ def _spawn(binary: str, resolved: dict[str, Any], ctx: int) -> None:
                 tail = (app_home() / _spawn_log).read_text("utf-8", "replace")[-600:]
             except OSError:
                 tail = ""
-            _proc, _proc_model, _proc_path, _proc_ctx = None, None, None, 0
+            _proc, _proc_model, _proc_path, _proc_ctx, _proc_gpu = None, None, None, 0, -1
             raise LlmError(f"llama-server が終了しました (code {proc.returncode})。"
                            f"{app_home() / _spawn_log} を確認してください {tail.strip()[:300]}")
         time.sleep(0.5)
@@ -815,7 +824,7 @@ def _spawn(binary: str, resolved: dict[str, Any], ctx: int) -> None:
 
 def _stop_server_locked() -> None:
     """Terminate the managed process if there is one. Caller holds _proc_lock."""
-    global _proc, _proc_model, _proc_path, _proc_ctx
+    global _proc, _proc_model, _proc_path, _proc_ctx, _proc_gpu
     global _reap_timer
     if _reap_timer is not None:
         _reap_timer.cancel()
@@ -823,7 +832,7 @@ def _stop_server_locked() -> None:
     if _proc is None:
         return
     proc, _proc = _proc, None
-    _proc_model, _proc_path, _proc_ctx = None, None, 0
+    _proc_model, _proc_path, _proc_ctx, _proc_gpu = None, None, 0, -1
     if proc.poll() is not None:
         return
     proc.terminate()
@@ -884,8 +893,9 @@ def _ensure_running(name: str, est_tokens: float = 0.0) -> None:
             running_path = Path(props.get("model_path") or "")
             running_ctx = int((props.get("default_generation_settings") or {}).get("n_ctx")
                               or _proc_ctx or 0)
-            if running_path == resolved["path"] and running_ctx >= want_ctx:
-                return  # already serving the right model wide enough
+            if running_path == resolved["path"] and running_ctx >= want_ctx and (
+                    _proc is None or _proc_gpu == int(_gpu_layers())):
+                return  # already serving the right model, wide enough, same device
             if _proc is None:
                 raise LlmError(
                     f"ポート {_listen()[1]} で別の llama-server が {running_path.name or '別モデル'}"

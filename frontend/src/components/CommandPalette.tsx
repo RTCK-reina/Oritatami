@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { comboLabel } from '../hooks';
+import { t } from '../i18n';
 
 export interface Command {
     id: string;
@@ -47,9 +48,9 @@ export function CommandPalette({ commands, onClose }: { commands: Command[]; onC
     let lastSection = '';
     return (
         <div className="modal-backdrop palette-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-            <div className="palette" role="dialog" aria-modal="true" aria-label="コマンド">
-                <input autoFocus className="palette-input" value={query} placeholder="やりたいことを入力 (例: 予測, 変異, 画像, テーマ)"
-                    aria-label="コマンドを検索" aria-controls="palette-list" aria-activedescendant={results[index] ? `cmd-${results[index].id}` : undefined}
+            <div className="palette" role="dialog" aria-modal="true" aria-label={t('コマンド')}>
+                <input autoFocus className="palette-input" value={query} placeholder={t('やりたいことを入力 (例: 予測, 変異, 画像, テーマ)')}
+                    aria-label={t('コマンドを検索')} aria-controls="palette-list" aria-activedescendant={results[index] ? `cmd-${results[index].id}` : undefined}
                     onChange={e => setQuery(e.target.value)}
                     onKeyDown={e => {
                         if (e.nativeEvent.isComposing) return;
@@ -59,7 +60,7 @@ export function CommandPalette({ commands, onClose }: { commands: Command[]; onC
                         if (e.key === 'Escape') { e.preventDefault(); onClose(); }
                     }} />
                 <div className="palette-list" id="palette-list" role="listbox" ref={listRef}>
-                    {results.length === 0 && <div className="palette-empty">該当するコマンドがありません</div>}
+                    {results.length === 0 && <div className="palette-empty">{t('該当するコマンドがありません')}</div>}
                     {results.map((c, i) => {
                         const header = c.section !== lastSection ? c.section : null;
                         lastSection = c.section;
@@ -76,7 +77,7 @@ export function CommandPalette({ commands, onClose }: { commands: Command[]; onC
                         );
                     })}
                 </div>
-                <div className="palette-foot small muted">↑↓ で選択 · ↩ で実行 · Esc で閉じる</div>
+                <div className="palette-foot small muted">{t('↑↓ で選択 · ↩ で実行 · Esc で閉じる')}</div>
             </div>
         </div>
     );

@@ -6,20 +6,22 @@ import type { GpuState, LlmStatus, Settings, SsdInfo, StorageInfo } from '../typ
 import { uiEvents } from '../uiEvents';
 import { SetupStatus } from './SetupStatus';
 import { Button, Field, Icon, Modal, Spinner } from './ui';
+import { getLang, setLang, t, type Lang } from '../i18n';
 
 const SUGGESTED = ['gemma3:4b', 'gemma3:12b', 'gemma3:27b', 'qwen3:8b', 'qwen3.5:9b', 'qwen3.5:4b', 'qwen3.5:2b', 'qwen3.5:27b'];
 
 const SECTIONS = [
-    { id: 'status', label: '準備状況', icon: 'check' },
+    { id: 'status', label: t('準備状況'), icon: 'check' },
     { id: 'llm', label: 'LLM', icon: 'sparkles' },
-    { id: 'predict', label: '構造予測', icon: 'flask' },
+    { id: 'predict', label: t('構造予測'), icon: 'flask' },
     { id: 'esm', label: 'ESM-2', icon: 'layers' },
-    { id: 'autopilot', label: 'オートパイロット', icon: 'play' },
-    { id: 'watcher', label: 'PDB ウォッチャー', icon: 'target' },
-    { id: 'jobs', label: 'ジョブと通知', icon: 'retry' },
-    { id: 'records', label: 'やり取りの記録', icon: 'folder' },
-    { id: 'system', label: 'GPU・SSD', icon: 'settings' },
-    { id: 'storage', label: 'ストレージ', icon: 'download' },
+    { id: 'autopilot', label: t('オートパイロット'), icon: 'play' },
+    { id: 'watcher', label: t('PDB ウォッチャー'), icon: 'target' },
+    { id: 'jobs', label: t('ジョブと通知'), icon: 'retry' },
+    { id: 'records', label: t('やり取りの記録'), icon: 'folder' },
+    { id: 'system', label: t('GPU・SSD'), icon: 'settings' },
+    { id: 'storage', label: t('ストレージ'), icon: 'download' },
+    { id: 'app', label: t('アプリ'), icon: 'info' },
 ] as const;
 type SectionId = (typeof SECTIONS)[number]['id'];
 
@@ -27,7 +29,7 @@ type SectionId = (typeof SECTIONS)[number]['id'];
 function More({ children }: { children: ReactNode }) {
     return (
         <details className="more">
-            <summary>詳しく</summary>
+            <summary>{t('詳しく')}</summary>
             <div className="more-body">{children}</div>
         </details>
     );
@@ -68,11 +70,11 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
     }, [s, saved, cfg, savedCfg]);
 
     const close = () => {
-        if (dirty && !window.confirm('保存していない変更があります。破棄して閉じますか?')) return;
+        if (dirty && !window.confirm(t('保存していない変更があります。破棄して閉じますか?'))) return;
         onClose();
     };
 
-    if (!s) return <Modal title="設定" onClose={onClose}><Spinner /></Modal>;
+    if (!s) return <Modal title={t('設定')} onClose={onClose}><Spinner /></Modal>;
     const set = <K extends keyof Settings>(k: K, v: Settings[K]) => setS({ ...s, [k]: v });
     const setCfgKey = <K extends keyof PdbWatcherConfig>(k: K, v: PdbWatcherConfig[K]) =>
         setCfg(c => (c ? { ...c, [k]: v } : c));
@@ -96,7 +98,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             }
             uiEvents.emit('autopilotChanged');
             await refreshHealth();
-            toast('success', '設定を保存しました');
+            toast('success', t('設定を保存しました'));
             onClose();
         } catch (e) {
             toast('error', errorMessage(e));
@@ -106,9 +108,9 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
     };
 
     return (
-        <Modal title="設定" onClose={close} wide className="settings-modal">
+        <Modal title={t('設定')} onClose={close} wide className="settings-modal">
             <div className="settings-layout">
-                <nav className="settings-nav" aria-label="設定の項目">
+                <nav className="settings-nav" aria-label={t('設定の項目')}>
                     {SECTIONS.map(sec => (
                         <button type="button" key={sec.id} className={`settings-nav-item ${section === sec.id ? 'active' : ''}`}
                             aria-current={section === sec.id} onClick={() => setSection(sec.id)}>
@@ -120,7 +122,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                 <div className="settings-pane settings">
                     {section === 'status' && (
                         <section>
-                            <h3>準備状況</h3>
+                            <h3>{t('準備状況')}</h3>
                             <SetupStatus />
                         </section>
                     )}
@@ -128,86 +130,89 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                     {section === 'llm' && (
                         <section>
                             <h3>LLM (llama.cpp)</h3>
-                            <Field label="使うモデル" hint={<>
-                                予測の直前に LLM はメモリから解放されるので、Boltz とメモリを奪い合うことはありません。
+                            <Field label={t('使うモデル')} hint={<>
+                                {t('予測の直前に LLM はメモリから解放されるので、Boltz とメモリを奪い合うことはありません。')}
                                 <More>
-                                    効くのは解析中の LLM と ESM-2 の同居分で、既定の gemma3:4b はファイル約 2.5 GB です。
-                                    実測ベンチでは 9B 級の約 3 倍速で採用率も同等でした。大きいモデルほど遅く、
-                                    生成速度がそのまま解析時間になります。
+                                    {t('効くのは解析中の LLM と ESM-2 の同居分で、既定の gemma3:4b はファイル約 2.5 GB です。')}
+                                    {t('実測ベンチでは 9B 級の約 3 倍速で採用率も同等でした。大きいモデルほど遅く、')}
+                                    {t('生成速度がそのまま解析時間になります。')}
                                 </More>
                             </>}>
                                 <select value={s.llm_model} onChange={e => set('llm_model', e.target.value)}>
                                     {[...new Set([s.llm_model, ...SUGGESTED, ...(llm?.models.map(m => m.name) ?? [])])].map(name => (
-                                        <option key={name} value={name}>{name}{llm?.models.some(m => m.name === name) ? '' : ' (未ダウンロード)'}</option>
+                                        <option key={name} value={name}>{name}{llm?.models.some(m => m.name === name) ? '' : t(' (未ダウンロード)')}</option>
                                     ))}
                                 </select>
                             </Field>
-                            <Field label="じっくり答えるときのモデル" hint={<>
-                                LLM パネルの「じっくり」ボタンだけが使います。空欄でボタンが消えます。
+                            <Field label={t('じっくり答えるときのモデル')} hint={<>
+                                {t('LLM パネルの「じっくり」ボタンだけが使います。空欄でボタンが消えます。')}
                                 <More>
-                                    自律ループは常に上のモデルを使います。実測では 27B (19 GB) はこの機体の GPU 上限 (約 18 GB) を
-                                    超えて CPU に溢れ、1 問 15 分でも返りませんでした。載るのは 14B 級 (9〜14 GB) までです。
+                                    {t('自律ループは常に上のモデルを使います。実測では 27B (19 GB) はこの機体の GPU 上限 (約 18 GB) を')}
+                                    {t('超えて CPU に溢れ、1 問 15 分でも返りませんでした。載るのは 14B 級 (9〜14 GB) までです。')}
                                 </More>
                             </>}>
                                 <select value={s.llm_model_heavy} onChange={e => set('llm_model_heavy', e.target.value)}>
-                                    <option value="">使わない</option>
+                                    <option value="">{t('使わない')}</option>
                                     {[...new Set([...(s.llm_model_heavy ? [s.llm_model_heavy] : []), ...SUGGESTED, ...(llm?.models.map(m => m.name) ?? [])])].map(name => (
-                                        <option key={name} value={name}>{name}{llm?.models.some(m => m.name === name) ? '' : ' (未ダウンロード)'}</option>
+                                        <option key={name} value={name}>{name}{llm?.models.some(m => m.name === name) ? '' : t(' (未ダウンロード)')}</option>
                                     ))}
                                 </select>
                             </Field>
                             <div className="row wrap">
-                                <Field label="温度"><input type="number" step={0.1} min={0} max={2} value={s.llm_temperature} onChange={e => set('llm_temperature', Number(e.target.value))} /></Field>
+                                <Field label={t('温度')}><input type="number" step={0.1} min={0} max={2} value={s.llm_temperature} onChange={e => set('llm_temperature', Number(e.target.value))} /></Field>
                                 <Field label="llama-server URL"><input value={s.ollama_url} onChange={e => set('ollama_url', e.target.value)} /></Field>
                             </div>
                             <label className="inline-toggle">
-                                <input type="checkbox" checked={s.llm_think} onChange={e => set('llm_think', e.target.checked)} /> 思考モード (回答前に長く考える)
+                                <input type="checkbox" checked={s.llm_think} onChange={e => set('llm_think', e.target.checked)} /> {t('思考モード (回答前に長く考える)')}
+                            </label>
+                            <label className="inline-toggle" title={t('オフにすると CPU だけで推論します。遅くなりますが、GPU が使えない環境や、GPU が CPU より遅い環境 (仮想マシンなど) 向けです')}>
+                                <input type="checkbox" checked={s.llm_gpu} onChange={e => set('llm_gpu', e.target.checked)} /> {t('LLM を GPU で実行する')}
                             </label>
                             <p className="field-hint">
-                                自律運転させるならオフを推奨します。
+                                {t('自律運転させるならオフを推奨します。')}
                                 <More>
-                                    qwen3.5:9b での実測 — 配列の位置を当てる質問 10 件で、正答は 1/10 から 8/10 に上がる一方、
-                                    所要は 2 秒から 1,556 秒 (26 分) になりました。うち 2 件は思考がコンテキスト窓 (16,384) を使い切って
-                                    打ち切られ、答えが返りませんでした。1 件あたり最長 409 秒。オートパイロットは 1 周につき
-                                    LLM を 2〜3 回呼びます。
+                                    {t('qwen3.5:9b での実測 — 配列の位置を当てる質問 10 件で、正答は 1/10 から 8/10 に上がる一方、')}
+                                    {t('所要は 2 秒から 1,556 秒 (26 分) になりました。うち 2 件は思考がコンテキスト窓 (16,384) を使い切って')}
+                                    {t('打ち切られ、答えが返りませんでした。1 件あたり最長 409 秒。オートパイロットは 1 周につき')}
+                                    {t('LLM を 2〜3 回呼びます。')}
                                 </More>
                             </p>
                             {s.llm_think && s.autopilot_enabled && (
                                 <div className="claim-warnings">
-                                    <strong>思考モードとオートパイロットが同時に有効です</strong>
-                                    解析が数十分に伸びたり、空の結果になることがあります。自律運転させるならオフを推奨します。
+                                    <strong>{t('思考モードとオートパイロットが同時に有効です')}</strong>
+                                    {t('解析が数十分に伸びたり、空の結果になることがあります。自律運転させるならオフを推奨します。')}
                                 </div>
                             )}
                             {s.llm_think && llm?.thinking_supported === false && llm.model === s.llm_model && (
                                 <div className="claim-warnings">
-                                    <strong>{s.llm_model} は思考モードに対応していません</strong>
-                                    サーバー側で通常モードに切り替わります。思考させたいときは対応モデルを選んでください。
+                                    <strong>{s.llm_model} {t('は思考モードに対応していません')}</strong>
+                                    {t('サーバー側で通常モードに切り替わります。思考させたいときは対応モデルを選んでください。')}
                                 </div>
                             )}
                             <hr className="settings-rule" />
-                            <h4>モデルのダウンロード</h4>
+                            <h4>{t('モデルのダウンロード')}</h4>
                             <div className="row wrap end">
-                                <Field label="モデル名">
+                                <Field label={t('モデル名')}>
                                     <input list="llm-models" value={pullModel} onChange={e => setPullModel(e.target.value)} />
                                 </Field>
                                 <datalist id="llm-models">{SUGGESTED.map(m => <option key={m} value={m} />)}</datalist>
                                 <Button disabled={!!pull?.active || !pullModel.trim()} onClick={() => void api.llmPull(pullModel.trim())
-                                    .then(p => setLlm(l => (l ? { ...l, pull: p } : l))).catch(e => toast('error', errorMessage(e)))}>取得</Button>
-                                <span className="small muted">保存とは別に、押した時点で始まります</span>
+                                    .then(p => setLlm(l => (l ? { ...l, pull: p } : l))).catch(e => toast('error', errorMessage(e)))}>{t('取得')}</Button>
+                                <span className="small muted">{t('保存とは別に、押した時点で始まります')}</span>
                             </div>
                             {pull && pull.model && (
                                 <div className="small">
-                                    {pull.model}: {pull.error ? <span className="warn">{pull.error}</span> : pull.status === 'cancelled' ? '中止しました' : pull.status}
+                                    {pull.model}: {pull.error ? <span className="warn">{pull.error}</span> : pull.status === 'cancelled' ? t('中止しました') : pull.status}
                                     {pull.total ? ` ${Math.round(((pull.completed ?? 0) / pull.total) * 100)}%` : ''}
                                     {pull.active && (
                                         <Button size="sm" onClick={() => void api.llmPullCancel()
                                             .then(p => setLlm(l => (l ? { ...l, pull: p } : l)))
-                                            .catch(e => toast('error', errorMessage(e)))}>中止</Button>
+                                            .catch(e => toast('error', errorMessage(e)))}>{t('中止')}</Button>
                                     )}
                                     {!pull.active && pull.error && (
                                         <Button size="sm" onClick={() => void api.llmPull(pull.model ?? '')
                                             .then(p => setLlm(l => (l ? { ...l, pull: p } : l)))
-                                            .catch(e => toast('error', errorMessage(e)))}>再試行</Button>
+                                            .catch(e => toast('error', errorMessage(e)))}>{t('再試行')}</Button>
                                     )}
                                     {pull.active && pull.total ? <div className="progress"><i style={{ width: `${((pull.completed ?? 0) / pull.total) * 100}%` }} /></div> : null}
                                 </div>
@@ -217,71 +222,71 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 
                     {section === 'predict' && (
                         <section>
-                            <h3>構造予測 (Boltz-2)</h3>
+                            <h3>{t('構造予測 (Boltz-2)')}</h3>
                             <div className="row wrap end">
-                                <Field label="計算デバイス">
+                                <Field label={t('計算デバイス')}>
                                     <select value={s.accelerator} onChange={e => set('accelerator', e.target.value)}>
-                                        <option value="auto">自動 (MPS があれば GPU)</option>
+                                        <option value="auto">{t('自動 (MPS があれば GPU)')}</option>
                                         <option value="mps">GPU (MPS)</option>
                                         <option value="cpu">CPU</option>
                                     </select>
                                 </Field>
-                                <Field label="既定のサンプル数"><input type="number" min={1} max={10} value={s.diffusion_samples} onChange={e => set('diffusion_samples', Number(e.target.value))} /></Field>
-                                <Field label="既定のリサイクル"><input type="number" min={1} max={10} value={s.recycling_steps} onChange={e => set('recycling_steps', Number(e.target.value))} /></Field>
-                                <Field label="既定の拡散ステップ"><input type="number" min={10} max={500} value={s.sampling_steps} onChange={e => set('sampling_steps', Number(e.target.value))} /></Field>
+                                <Field label={t('既定のサンプル数')}><input type="number" min={1} max={10} value={s.diffusion_samples} onChange={e => set('diffusion_samples', Number(e.target.value))} /></Field>
+                                <Field label={t('既定のリサイクル')}><input type="number" min={1} max={10} value={s.recycling_steps} onChange={e => set('recycling_steps', Number(e.target.value))} /></Field>
+                                <Field label={t('既定の拡散ステップ')}><input type="number" min={10} max={500} value={s.sampling_steps} onChange={e => set('sampling_steps', Number(e.target.value))} /></Field>
                             </div>
-                            <p className="field-hint">初期値は サンプル 1 / リサイクル 4 / 拡散 200 です。新しい作業台がこの値から始まります。</p>
+                            <p className="field-hint">{t('初期値は サンプル 1 / リサイクル 4 / 拡散 200 です。新しい作業台がこの値から始まります。')}</p>
                             <label className="inline-toggle">
-                                <input type="checkbox" checked={s.mps_strict} onChange={e => set('mps_strict', e.target.checked)} /> CPU に落ちたらジョブを失敗させる (GPU 厳格モード)
+                                <input type="checkbox" checked={s.mps_strict} onChange={e => set('mps_strict', e.target.checked)} /> {t('CPU に落ちたらジョブを失敗させる (GPU 厳格モード)')}
                             </label>
                             <p className="field-hint">
-                                Metal のカーネルが無い演算は既定では黙って CPU で処理され、その分だけ遅くなります。オンにすると気づけます。
-                                <More>2026-09-14 の実測では単鎖 (35 秒) も複合体+親和性 (243 秒) も CPU 落ちゼロで完走しました。</More>
+                                {t('Metal のカーネルが無い演算は既定では黙って CPU で処理され、その分だけ遅くなります。オンにすると気づけます。')}
+                                <More>{t('2026-09-14 の実測では単鎖 (35 秒) も複合体+親和性 (243 秒) も CPU 落ちゼロで完走しました。')}</More>
                             </p>
-                            <Field label="GPU メモリの上限倍率" hint={<>
-                                PyTorch が 1 プロセスに許す上限を、Metal の推奨値の何倍にするか。0 で上限なし。
+                            <Field label={t('GPU メモリの上限倍率')} hint={<>
+                                {t('PyTorch が 1 プロセスに許す上限を、Metal の推奨値の何倍にするか。0 で上限なし。')}
                                 <More>
-                                    既定 1.7 では推奨 17.76 GB に対して 30.2 GB で頭打ちになり、1,696 残基 (3 本鎖) の予測が
-                                    16 分ぶんを捨てて落ちました。上限を外すと落ちない代わりに、物理メモリを超えたぶんはスワップになり
-                                    SSD に書き続けます (「GPU・SSD」の項を参照)。
+                                    {t('既定 1.7 では推奨 17.76 GB に対して 30.2 GB で頭打ちになり、1,696 残基 (3 本鎖) の予測が')}
+                                    {t('16 分ぶんを捨てて落ちました。上限を外すと落ちない代わりに、物理メモリを超えたぶんはスワップになり')}
+                                    {t('SSD に書き続けます (「GPU・SSD」の項を参照)。')}
                                 </More>
                             </>}>
                                 <input type="number" min={0} max={8} step={0.1} value={s.mps_memory_ratio}
                                     onChange={e => set('mps_memory_ratio', Number(e.target.value))} />
                             </Field>
                             <hr className="settings-rule" />
-                            <h4>変異案の検証</h4>
+                            <h4>{t('変異案の検証')}</h4>
                             <label className="inline-toggle">
-                                <input type="checkbox" checked={s.mpnn_enabled} onChange={e => set('mpnn_enabled', e.target.checked)} /> 変異案を逆折り畳み (ProteinMPNN) でも確認する
+                                <input type="checkbox" checked={s.mpnn_enabled} onChange={e => set('mpnn_enabled', e.target.checked)} /> {t('変異案を逆折り畳み (ProteinMPNN) でも確認する')}
                             </label>
                             <p className="field-hint">
-                                Boltz と ESM-2 は似た盲点を持ちます。逆折り畳みは「この骨格にこの配列が載るか」を見るので向きが違います。
+                                {t('Boltz と ESM-2 は似た盲点を持ちます。逆折り畳みは「この骨格にこの配列が載るか」を見るので向きが違います。')}
                                 <More>
-                                    ユビキチンの C 末端グリシンや K63 を壊す変異に Boltz と ESM-2 の両方が賛成しました。
-                                    逆折り畳みは実測で I44A・L67D・G75C・G76C を最下位、無害な表面変異を上位に並べました。
+                                    {t('ユビキチンの C 末端グリシンや K63 を壊す変異に Boltz と ESM-2 の両方が賛成しました。')}
+                                    {t('逆折り畳みは実測で I44A・L67D・G75C・G76C を最下位、無害な表面変異を上位に並べました。')}
                                 </More>
                             </p>
                             {s.mpnn_enabled && (
-                                <Field label="逆折り畳みの却下ライン" hint={<>
-                                    親よりこれ以上悪化する案は予測にかけずに落とします。0 で却下せず並べ替えだけ。
-                                    <More>480 件の履歴では上位半分に絞ると親超えの割合が 4.6% → 8.3% になりました。</More>
+                                <Field label={t('逆折り畳みの却下ライン')} hint={<>
+                                    {t('親よりこれ以上悪化する案は予測にかけずに落とします。0 で却下せず並べ替えだけ。')}
+                                    <More>{t('480 件の履歴では上位半分に絞ると親超えの割合が 4.6% → 8.3% になりました。')}</More>
                                 </>}>
                                     <input type="number" step={0.01} min={0} max={5} value={s.mpnn_veto}
                                         onChange={e => set('mpnn_veto', Number(e.target.value))} />
                                 </Field>
                             )}
                             <hr className="settings-rule" />
-                            <h4>MSA とファイル</h4>
-                            <Field label="MSA サーバー" hint="タンパク質配列がこのサーバーに送られます (既定: ColabFold 公開サーバー)">
+                            <h4>{t('MSA とファイル')}</h4>
+                            <Field label={t('MSA サーバー')} hint={t('タンパク質配列がこのサーバーに送られます (既定: ColabFold 公開サーバー)')}>
                                 <input value={s.msa_server_url} onChange={e => set('msa_server_url', e.target.value)} />
                             </Field>
-                            <label className="inline-toggle" title="点変異体では、元の配列の MSA を流用して検索時間を省きます (置換 5% 以下)">
-                                <input type="checkbox" checked={s.reuse_msa_for_variants} onChange={e => set('reuse_msa_for_variants', e.target.checked)} /> 変異体で MSA を再利用する
+                            <label className="inline-toggle" title={t('点変異体では、元の配列の MSA を流用して検索時間を省きます (置換 5% 以下)')}>
+                                <input type="checkbox" checked={s.reuse_msa_for_variants} onChange={e => set('reuse_msa_for_variants', e.target.checked)} /> {t('変異体で MSA を再利用する')}
                             </label>
-                            <label className="inline-toggle" title="予測の完了後、Boltz だけが使う前処理ファイルと MSA 検索の生データを削除します (1 件あたり数 MB〜数十 MB)。構造・スコア・MSA は残ります">
-                                <input type="checkbox" checked={s.cleanup_intermediate} onChange={e => set('cleanup_intermediate', e.target.checked)} /> 完了後に中間ファイルを自動で削除する
+                            <label className="inline-toggle" title={t('予測の完了後、Boltz だけが使う前処理ファイルと MSA 検索の生データを削除します (1 件あたり数 MB〜数十 MB)。構造・スコア・MSA は残ります')}>
+                                <input type="checkbox" checked={s.cleanup_intermediate} onChange={e => set('cleanup_intermediate', e.target.checked)} /> {t('完了後に中間ファイルを自動で削除する')}
                             </label>
-                            <Field label="キャッシュ (重み・化学辞書)"><input value={s.boltz_cache} onChange={e => set('boltz_cache', e.target.value)} /></Field>
+                            <Field label={t('キャッシュ (重み・化学辞書)')}><input value={s.boltz_cache} onChange={e => set('boltz_cache', e.target.value)} /></Field>
                         </section>
                     )}
 
@@ -289,16 +294,16 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                         <section>
                             <h3>ESM-2</h3>
                             <div className="row wrap end">
-                                <Field label="モデル" hint="大きいほど精度は上がるが遅い">
+                                <Field label={t('モデル')} hint={t('大きいほど精度は上がるが遅い')}>
                                     <select value={s.esm_model} onChange={e => set('esm_model', e.target.value)}>
-                                        <option value="facebook/esm2_t12_35M_UR50D">35M (軽量)</option>
+                                        <option value="facebook/esm2_t12_35M_UR50D">{t('35M (軽量)')}</option>
                                         <option value="facebook/esm2_t30_150M_UR50D">150M</option>
-                                        <option value="facebook/esm2_t33_650M_UR50D">650M (推奨)</option>
+                                        <option value="facebook/esm2_t33_650M_UR50D">{t('650M (推奨)')}</option>
                                     </select>
                                 </Field>
-                                <Field label="デバイス">
+                                <Field label={t('デバイス')}>
                                     <select value={s.esm_device} onChange={e => set('esm_device', e.target.value)}>
-                                        <option value="auto">自動</option>
+                                        <option value="auto">{t('自動')}</option>
                                         <option value="mps">GPU (MPS)</option>
                                         <option value="cpu">CPU</option>
                                     </select>
@@ -309,151 +314,151 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 
                     {section === 'autopilot' && (
                         <section>
-                            <h3>オートパイロット</h3>
+                            <h3>{t('オートパイロット')}</h3>
                             <p className="small muted">
-                                予測が終わるたびに LLM が自動で解析し、有望な変異を新しい予測として投入します。
-                                無人で回すため、次の 3 つ (1 回の枝分かれ数・24 時間の上限・待機の上限) で歯止めをかけています。
+                                {t('予測が終わるたびに LLM が自動で解析し、有望な変異を新しい予測として投入します。')}
+                                {t('無人で回すため、次の 3 つ (1 回の枝分かれ数・24 時間の上限・待機の上限) で歯止めをかけています。')}
                             </p>
-                            <label className="inline-toggle" title="オフにすると自動解析後の変異体投入と PDB ウォッチャーの投入が止まります。実行中のジョブは最後まで走り、新規投入だけが止まります">
+                            <label className="inline-toggle" title={t('オフにすると自動解析後の変異体投入と PDB ウォッチャーの投入が止まります。実行中のジョブは最後まで走り、新規投入だけが止まります')}>
                                 <input type="checkbox" checked={s.autopilot_enabled}
-                                    onChange={e => set('autopilot_enabled', e.target.checked)} /> オートパイロットを有効にする
+                                    onChange={e => set('autopilot_enabled', e.target.checked)} /> {t('オートパイロットを有効にする')}
                             </label>
                             {s.autopilot_enabled && s.autopilot_max_depth === 0 && (
                                 <div className="claim-warnings">
-                                    <strong>連続稼働モード (世代の上限が 0)</strong>
-                                    このチェックを外すまで系統が伸び続けます。外した時点で新規投入だけが止まり、実行中のジョブは最後まで走ります。
+                                    <strong>{t('連続稼働モード (世代の上限が 0)')}</strong>
+                                    {t('このチェックを外すまで系統が伸び続けます。外した時点で新規投入だけが止まり、実行中のジョブは最後まで走ります。')}
                                     {s.autopilot_max_variants_per_job > 1 &&
-                                        ' 変異体数が 2 以上のままだと世代ごとに倍々に増えるので、1 に下げてください。'}
+                                        t(' 変異体数が 2 以上のままだと世代ごとに倍々に増えるので、1 に下げてください。')}
                                 </div>
                             )}
 
-                            <h4>探索のしかた</h4>
+                            <h4>{t('探索のしかた')}</h4>
                             <div className="row wrap end">
-                                <Field label="1ジョブあたりの変異体数" hint="解析 1 回から自動投入する上限">
+                                <Field label={t('1ジョブあたりの変異体数')} hint={t('解析 1 回から自動投入する上限')}>
                                     <input type="number" min={0} max={10} value={s.autopilot_max_variants_per_job}
                                         onChange={e => set('autopilot_max_variants_per_job', Number(e.target.value))} />
                                 </Field>
-                                <Field label="世代の上限" hint="0 で無制限">
+                                <Field label={t('世代の上限')} hint={t('0 で無制限')}>
                                     <input type="number" min={0} max={100} value={s.autopilot_max_depth}
                                         onChange={e => set('autopilot_max_depth', Number(e.target.value))} />
                                 </Field>
-                                <Field label="山登りの我慢の手数" hint="0 で降りない">
+                                <Field label={t('山登りの我慢の手数')} hint={t('0 で降りない')}>
                                     <input type="number" min={0} max={100} value={s.autopilot_climb_patience}
                                         disabled={s.autopilot_strategy !== 'climb'}
                                         onChange={e => set('autopilot_climb_patience', Number(e.target.value))} />
                                 </Field>
                             </div>
                             <div className="row wrap end">
-                                <Field label="探索の方針">
+                                <Field label={t('探索の方針')}>
                                     <select value={s.autopilot_strategy} onChange={e => set('autopilot_strategy', e.target.value)}>
-                                        <option value="climb">山登り (常に最良から枝分かれ)</option>
-                                        <option value="walk">酔歩 (最新からそのまま続ける)</option>
+                                        <option value="climb">{t('山登り (常に最良から枝分かれ)')}</option>
+                                        <option value="walk">{t('酔歩 (最新からそのまま続ける)')}</option>
                                     </select>
                                 </Field>
-                                <Field label="候補の選び方">
+                                <Field label={t('候補の選び方')}>
                                     <select value={s.autopilot_selection} onChange={e => set('autopilot_selection', e.target.value)}>
-                                        <option value="greedy">良さそうな順</option>
-                                        <option value="explore">試していない位置を優先</option>
+                                        <option value="greedy">{t('良さそうな順')}</option>
+                                        <option value="explore">{t('試していない位置を優先')}</option>
                                     </select>
                                 </Field>
                             </div>
                             <p className="field-hint">
-                                世代を無制限にするなら変異体数は 1 に。
+                                {t('世代を無制限にするなら変異体数は 1 に。')}
                                 <More>
-                                    山登りは子が親を超えなければ捨てて頂点に戻ります。51 世代の実測では酔歩は下り坂に入り、
-                                    第 3 世代の 93.37 が第 51 世代には 91.43 まで落ちました。我慢の手数は、頂点から何手試して
-                                    超えられなかったら次点に降りるか。野生型ユビキチンのように元が既に良い配列だと、これがないと
-                                    1 変異の近傍から永久に出られません。候補の選び方は、実測では全試行の 23% が 6 つの位置に集中しており、
-                                    「良さそうな順」は同じ場所を何度も測り直す傾向があります。
+                                    {t('山登りは子が親を超えなければ捨てて頂点に戻ります。51 世代の実測では酔歩は下り坂に入り、')}
+                                    {t('第 3 世代の 93.37 が第 51 世代には 91.43 まで落ちました。我慢の手数は、頂点から何手試して')}
+                                    {t('超えられなかったら次点に降りるか。野生型ユビキチンのように元が既に良い配列だと、これがないと')}
+                                    {t('1 変異の近傍から永久に出られません。候補の選び方は、実測では全試行の 23% が 6 つの位置に集中しており、')}
+                                    {t('「良さそうな順」は同じ場所を何度も測り直す傾向があります。')}
                                 </More>
                             </p>
-                            <Field label="実験名" hint="名前を入れると、その名前のついた予測だけを枝分かれの起点にします。空なら全履歴が対象">
-                                <input type="text" placeholder="空欄で全履歴" value={s.autopilot_experiment}
+                            <Field label={t('実験名')} hint={t('名前を入れると、その名前のついた予測だけを枝分かれの起点にします。空なら全履歴が対象')}>
+                                <input type="text" placeholder={t('空欄で全履歴')} value={s.autopilot_experiment}
                                     onChange={e => set('autopilot_experiment', e.target.value)} />
                             </Field>
 
                             <hr className="settings-rule" />
-                            <h4>歯止め</h4>
+                            <h4>{t('歯止め')}</h4>
                             <div className="row wrap end">
-                                <Field label="24時間あたりの上限" hint="0 で無制限">
+                                <Field label={t('24時間あたりの上限')} hint={t('0 で無制限')}>
                                     <input type="number" min={0} max={2000} value={s.autopilot_daily_budget}
                                         onChange={e => set('autopilot_daily_budget', Number(e.target.value))} />
                                 </Field>
-                                <Field label="待機ジョブの上限" hint="捌けるまで投入を止める">
+                                <Field label={t('待機ジョブの上限')} hint={t('捌けるまで投入を止める')}>
                                     <input type="number" min={1} max={100} value={s.autopilot_max_queued}
                                         onChange={e => set('autopilot_max_queued', Number(e.target.value))} />
                                 </Field>
-                                <Field label="空き容量の下限 (GB)" hint="下回ると投入を止める">
+                                <Field label={t('空き容量の下限 (GB)')} hint={t('下回ると投入を止める')}>
                                     <input type="number" min={0} max={500} step={1} value={s.autopilot_min_disk_gb}
                                         onChange={e => set('autopilot_min_disk_gb', Number(e.target.value))} />
                                 </Field>
                             </div>
-                            <p className="field-hint">上限はオートパイロットと PDB ウォッチャーの合計です。手動投入はこの枠を消費しません。</p>
+                            <p className="field-hint">{t('上限はオートパイロットと PDB ウォッチャーの合計です。手動投入はこの枠を消費しません。')}</p>
 
                             <hr className="settings-rule" />
-                            <h4>提案の絞り込み</h4>
+                            <h4>{t('提案の絞り込み')}</h4>
                             <div className="row wrap end">
-                                <Field label="1回に出させる提案数" hint="候補の幅">
+                                <Field label={t('1回に出させる提案数')} hint={t('候補の幅')}>
                                     <input type="number" min={1} max={8} value={s.autopilot_proposals_per_call}
                                         onChange={e => set('autopilot_proposals_per_call', Number(e.target.value))} />
                                 </Field>
-                                <Field label="ESM-2 スコアの下限" hint="極端な提案だけを落とす安全網">
+                                <Field label={t('ESM-2 スコアの下限')} hint={t('極端な提案だけを落とす安全網')}>
                                     <input type="number" step={0.5} min={-25} max={5} value={s.autopilot_min_esm_llr}
                                         onChange={e => set('autopilot_min_esm_llr', Number(e.target.value))} />
                                 </Field>
                             </div>
                             <p className="field-hint">
-                                既定が緩いのは実測の結果です。選抜そのものはスコア順が担います。
+                                {t('既定が緩いのは実測の結果です。選抜そのものはスコア順が担います。')}
                                 <More>
-                                    ESM-2 と Boltz の一致度は弱く (ユビキチン 9 変異で r=0.34)、-10 に設定すると最良だった
-                                    Q40V (LLR -10.0, pLDDT +0.8) を捨てる一方、唯一破壊的だった L67R (LLR -9.7, pLDDT -9.4) は
-                                    通してしまいました。値の分布もタンパク質依存で、ユビキチンでは全 1 点変異の中央値が -7.0 です。
+                                    {t('ESM-2 と Boltz の一致度は弱く (ユビキチン 9 変異で r=0.34)、-10 に設定すると最良だった')}
+                                    {t('Q40V (LLR -10.0, pLDDT +0.8) を捨てる一方、唯一破壊的だった L67R (LLR -9.7, pLDDT -9.4) は')}
+                                    {t('通してしまいました。値の分布もタンパク質依存で、ユビキチンでは全 1 点変異の中央値が -7.0 です。')}
                                 </More>
                             </p>
-                            <Field label="変更を禁止する残基" hint="番号でも K63 のような表記でもかまいません。カンマ区切り">
-                                <input type="text" placeholder="例: K48, K63, R72, G75, G76"
+                            <Field label={t('変更を禁止する残基')} hint={t('番号でも K63 のような表記でもかまいません。カンマ区切り')}>
+                                <input type="text" placeholder={t('例: K48, K63, R72, G75, G76')}
                                     value={s.autopilot_protected_residues}
                                     onChange={e => set('autopilot_protected_residues', e.target.value)} />
                             </Field>
                             <p className="field-hint">
-                                pLDDT を上げるだけなら、機能に必要な残基を壊すのが一番手っ取り早い近道になります。
-                                <More>ユビキチンで 491 件回したときは 91% が C 末端の G76 を、94% が K63 を潰していました。</More>
+                                {t('pLDDT を上げるだけなら、機能に必要な残基を壊すのが一番手っ取り早い近道になります。')}
+                                <More>{t('ユビキチンで 491 件回したときは 91% が C 末端の G76 を、94% が K63 を潰していました。')}</More>
                             </p>
                             <label className="inline-toggle">
                                 <input type="checkbox" checked={s.autopilot_protect_disordered}
-                                    onChange={e => set('autopilot_protect_disordered', e.target.checked)} /> 起点で乱れていた残基を自動で保護する
+                                    onChange={e => set('autopilot_protect_disordered', e.target.checked)} /> {t('起点で乱れていた残基を自動で保護する')}
                             </label>
-                            <Field label="乱れた残基のしきい値 (pLDDT)" hint="系統の起点でこの値を下回っていた残基を変更禁止にします">
+                            <Field label={t('乱れた残基のしきい値 (pLDDT)')} hint={t('系統の起点でこの値を下回っていた残基を変更禁止にします')}>
                                 <input type="number" min={0} max={100} step={5}
                                     disabled={!s.autopilot_protect_disordered}
                                     value={s.autopilot_disorder_plddt}
                                     onChange={e => set('autopilot_disorder_plddt', Number(e.target.value))} />
                             </Field>
-                            <label className="inline-toggle" title="複合体では、どの残基が相手のチェーンに触れているかを Boltz が予測のたびに計算しています。役割がわかっている数少ない部分なので、界面を作り直したいとき以外は触らせません">
+                            <label className="inline-toggle" title={t('複合体では、どの残基が相手のチェーンに触れているかを Boltz が予測のたびに計算しています。役割がわかっている数少ない部分なので、界面を作り直したいとき以外は触らせません')}>
                                 <input type="checkbox" checked={s.autopilot_protect_interfaces}
-                                    onChange={e => set('autopilot_protect_interfaces', e.target.checked)} /> 界面に接している残基を自動で保護する
+                                    onChange={e => set('autopilot_protect_interfaces', e.target.checked)} /> {t('界面に接している残基を自動で保護する')}
                             </label>
-                            <label className="inline-toggle" title="1世代あたり LLM を2回呼ぶうちの1回。結果の解説文はどこにも保存されません">
+                            <label className="inline-toggle" title={t('1世代あたり LLM を2回呼ぶうちの1回。結果の解説文はどこにも保存されません')}>
                                 <input type="checkbox" checked={s.autopilot_explain}
-                                    onChange={e => set('autopilot_explain', e.target.checked)} /> 変異提案の前に結果の解説もさせる (1 世代の所要時間の約 27%)
+                                    onChange={e => set('autopilot_explain', e.target.checked)} /> {t('変異提案の前に結果の解説もさせる (1 世代の所要時間の約 27%)')}
                             </label>
 
                             <hr className="settings-rule" />
-                            <h4>改善の判定</h4>
+                            <h4>{t('改善の判定')}</h4>
                             <div className="row wrap end">
-                                <Field label="判定に使う指標" hint="自動: 複数チェーンは ipTM、単量体は平均 pLDDT">
+                                <Field label={t('判定に使う指標')} hint={t('自動: 複数チェーンは ipTM、単量体は平均 pLDDT')}>
                                     <select value={s.autopilot_improvement_metric}
                                         onChange={e => set('autopilot_improvement_metric', e.target.value)}>
-                                        <option value="auto">自動 (複合体は ipTM / 単量体は平均 pLDDT)</option>
-                                        <option value="mean_plddt">平均 pLDDT</option>
-                                        <option value="core_plddt">コア pLDDT (下位10%を除く)</option>
+                                        <option value="auto">{t('自動 (複合体は ipTM / 単量体は平均 pLDDT)')}</option>
+                                        <option value="mean_plddt">{t('平均 pLDDT')}</option>
+                                        <option value="core_plddt">{t('コア pLDDT (下位10%を除く)')}</option>
                                         <option value="iptm">ipTM</option>
                                         <option value="ptm">pTM</option>
-                                        <option value="confidence_score">信頼度スコア</option>
-                                        <option value="complex_plddt">複合体 pLDDT</option>
+                                        <option value="confidence_score">{t('信頼度スコア')}</option>
+                                        <option value="complex_plddt">{t('複合体 pLDDT')}</option>
                                     </select>
                                 </Field>
-                                <Field label="改善とみなす差" hint="pLDDT 換算 (2.0 = pLDDT +2 / ipTM +0.02)">
+                                <Field label={t('改善とみなす差')} hint={t('pLDDT 換算 (2.0 = pLDDT +2 / ipTM +0.02)')}>
                                     <input type="number" step={0.5} min={0} max={50} value={s.autopilot_improvement_delta}
                                         onChange={e => set('autopilot_improvement_delta', Number(e.target.value))} />
                                 </Field>
@@ -465,35 +470,35 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 
                     {section === 'watcher' && (
                         <section>
-                            <h3>PDB ウォッチャー</h3>
-                            <p className="small muted">RCSB PDB を 6 時間ごとに巡回し、新しくリリースされたタンパク質構造を自動取得・予測します。24 時間の上限はオートパイロットと共通です。</p>
+                            <h3>{t('PDB ウォッチャー')}</h3>
+                            <p className="small muted">{t('RCSB PDB を 6 時間ごとに巡回し、新しくリリースされたタンパク質構造を自動取得・予測します。24 時間の上限はオートパイロットと共通です。')}</p>
                             {!cfg ? <Spinner /> : (
                                 <>
                                     <label className="inline-toggle">
-                                        <input type="checkbox" checked={cfg.enabled} onChange={e => setCfgKey('enabled', e.target.checked)} /> PDB ウォッチャーを有効にする
+                                        <input type="checkbox" checked={cfg.enabled} onChange={e => setCfgKey('enabled', e.target.checked)} /> {t('PDB ウォッチャーを有効にする')}
                                     </label>
                                     <div className="row wrap end">
-                                        <Field label="1回あたりの最大取得件数" hint="ポーリングごとの上限">
+                                        <Field label={t('1回あたりの最大取得件数')} hint={t('ポーリングごとの上限')}>
                                             <input type="number" min={1} max={20} value={cfg.max_per_poll}
                                                 onChange={e => setCfgKey('max_per_poll', Number(e.target.value))} />
                                         </Field>
-                                        <Field label="最小配列長 (aa)">
+                                        <Field label={t('最小配列長 (aa)')}>
                                             <input type="number" min={10} max={1000} value={cfg.min_seq_len}
                                                 onChange={e => setCfgKey('min_seq_len', Number(e.target.value))} />
                                         </Field>
-                                        <Field label="最大配列長 (aa)">
+                                        <Field label={t('最大配列長 (aa)')}>
                                             <input type="number" min={10} max={5000} value={cfg.max_seq_len}
                                                 onChange={e => setCfgKey('max_seq_len', Number(e.target.value))} />
                                         </Field>
                                     </div>
                                     {cfg.last_checked && (
-                                        <div className="small muted">最終ポーリング: {new Date(cfg.last_checked).toLocaleString('ja-JP')}</div>
+                                        <div className="small muted">{t('最終ポーリング:')} {new Date(cfg.last_checked).toLocaleString('ja-JP')}</div>
                                     )}
                                     <div className="row">
                                         <Button size="sm" onClick={() => void api.pdbWatcher.pollNow()
-                                            .then(() => toast('success', 'ポーリングを開始しました'))
-                                            .catch(e => toast('error', errorMessage(e)))}>今すぐポーリング</Button>
-                                        <span className="small muted">保存とは別に、押した時点で始まります</span>
+                                            .then(() => toast('success', t('ポーリングを開始しました')))
+                                            .catch(e => toast('error', errorMessage(e)))}>{t('今すぐポーリング')}</Button>
+                                        <span className="small muted">{t('保存とは別に、押した時点で始まります')}</span>
                                     </div>
                                 </>
                             )}
@@ -502,27 +507,27 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 
                     {section === 'jobs' && (
                         <section>
-                            <h3>失敗時の自動再試行</h3>
+                            <h3>{t('失敗時の自動再試行')}</h3>
                             <p className="small muted">
-                                MSA サーバーや回線の一時的な失敗だけを対象に、待ち時間を倍にしながら再投入します。
-                                配列の誤りやメモリ不足など、やり直しても同じ結果になる失敗は対象外です。
+                                {t('MSA サーバーや回線の一時的な失敗だけを対象に、待ち時間を倍にしながら再投入します。')}
+                                {t('配列の誤りやメモリ不足など、やり直しても同じ結果になる失敗は対象外です。')}
                             </p>
                             <label className="inline-toggle">
                                 <input type="checkbox" checked={s.job_auto_retry}
-                                    onChange={e => set('job_auto_retry', e.target.checked)} /> 一時的な失敗を自動で再試行する
+                                    onChange={e => set('job_auto_retry', e.target.checked)} /> {t('一時的な失敗を自動で再試行する')}
                             </label>
-                            <Field label="再試行の回数" hint="1回目は60秒後、2回目は120秒後…と間隔が倍になります">
+                            <Field label={t('再試行の回数')} hint={t('1回目は60秒後、2回目は120秒後…と間隔が倍になります')}>
                                 <input type="number" min={0} max={10} value={s.job_max_retries}
                                     onChange={e => set('job_max_retries', Number(e.target.value))} />
                             </Field>
                             <hr className="settings-rule" />
-                            <h3>通知</h3>
+                            <h3>{t('通知')}</h3>
                             <label className="inline-toggle">
-                                <input type="checkbox" checked={s.notify_on_finish} onChange={e => set('notify_on_finish', e.target.checked)} /> 計算が終わったら通知する (ウィンドウが裏にあるとき)
+                                <input type="checkbox" checked={s.notify_on_finish} onChange={e => set('notify_on_finish', e.target.checked)} /> {t('計算が終わったら通知する (ウィンドウが裏にあるとき)')}
                             </label>
-                            <label className="inline-toggle" title="ウィンドウを閉じていても、バックエンドから通知します">
+                            <label className="inline-toggle" title={t('ウィンドウを閉じていても、バックエンドから通知します')}>
                                 <input type="checkbox" checked={s.autopilot_notify_improvement}
-                                    onChange={e => set('autopilot_notify_improvement', e.target.checked)} /> 親を上回る変異体が出たときに通知する
+                                    onChange={e => set('autopilot_notify_improvement', e.target.checked)} /> {t('親を上回る変異体が出たときに通知する')}
                             </label>
                         </section>
                     )}
@@ -538,16 +543,28 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                     )}
 
                     {section === 'storage' && <StorageSection />}
+
+                    {section === 'app' && (
+                        <section>
+                            <h3>{t('アプリ')}</h3>
+                            <Field label={t('言語')} hint={t('切り替えるとアプリを開き直します')}>
+                                <select value={getLang()} onChange={e => setLang(e.target.value as Lang)}>
+                                    <option value="ja">{t('日本語')}</option>
+                                    <option value="en">English</option>
+                                </select>
+                            </Field>
+                        </section>
+                    )}
                 </div>
             </div>
 
             <div className="settings-foot">
                 <Button variant="primary" disabled={saving} onClick={() => void save()}>
-                    {saving ? <Spinner size={12} /> : '保存'}
+                    {saving ? <Spinner size={12} /> : t('保存')}
                 </Button>
-                <Button variant="ghost" onClick={close}>閉じる</Button>
+                <Button variant="ghost" onClick={close}>{t('閉じる')}</Button>
                 <span className="spacer" />
-                <span className="small muted">{dirty ? '未保存の変更があります' : '保存済み'}</span>
+                <span className="small muted">{dirty ? t('未保存の変更があります') : t('保存済み')}</span>
             </div>
         </Modal>
     );
@@ -562,15 +579,15 @@ function NoiseNote({ value, onAdopt }: { value: number; onAdopt: (v: number) => 
     const low = value < suggested;
     return (
         <p className={`small ${low ? 'warn' : 'muted'}`}>
-            同じ配列を同じ条件で測り直したときのブレは σ = {h.sigma.toFixed(3)}
-            （{h.repeats} 回の測り直しから）。差は 2 回の測定の引き算なので、
-            意味があると言えるのは <strong>{suggested.toFixed(2)}</strong> 以上です。
-            {low && <> 今の {value} はブレの範囲に入っています。{' '}
+            {t('同じ配列を同じ条件で測り直したときのブレは σ =')} {h.sigma.toFixed(3)}
+            {t('（')}{h.repeats} {t('回の測り直しから）。差は 2 回の測定の引き算なので、')}
+            {t('意味があると言えるのは')} <strong>{suggested.toFixed(2)}</strong> {t('以上です。')}
+            {low && <> {t('今の')} {value} {t('はブレの範囲に入っています。')}{' '}
                 <button type="button" className="link" onClick={() => onAdopt(suggested)}>
-                    {suggested.toFixed(2)} にする
+                    {suggested.toFixed(2)} {t('にする')}
                 </button></>}
-            {h.pairs > 0 && <> これまでの {h.pairs} 回の試行の平均は {h.mean_delta?.toFixed(2)}、
-                改善した割合は {((h.improved_rate ?? 0) * 100).toFixed(1)}% です。</>}
+            {h.pairs > 0 && <> {t('これまでの')} {h.pairs} {t('回の試行の平均は')} {h.mean_delta?.toFixed(2)}{t('、')}
+                {t('改善した割合は')} {((h.improved_rate ?? 0) * 100).toFixed(1)}{t('% です。')}</>}
         </p>
     );
 }
@@ -587,13 +604,13 @@ function LlmLogSection({ value, onChange }: { value: number; onChange: (n: numbe
 
     return (
         <section>
-            <h3>やり取りの記録</h3>
+            <h3>{t('やり取りの記録')}</h3>
             <p className="small muted">
-                LLM に送ったプロンプトと返ってきた本文・提案を、自律ループの分も含めて全部残します。
-                あとで「なぜこの提案が出たか」を追ったり、書き出して学習・評価に使ったりするためのものです。
-                {total !== null && ` 現在 ${total.toLocaleString('ja-JP')} 件。`}
+                {t('LLM に送ったプロンプトと返ってきた本文・提案を、自律ループの分も含めて全部残します。')}
+                {t('あとで「なぜこの提案が出たか」を追ったり、書き出して学習・評価に使ったりするためのものです。')}
+                {total !== null && ` ${t('現在')} ${total.toLocaleString('ja-JP')} ${t('件。')}`}
             </p>
-            <Field label="保存件数" hint="古いものから消えます。1 件およそ 12 KB。0 にすると記録しません">
+            <Field label={t('保存件数')} hint={t('古いものから消えます。1 件およそ 12 KB。0 にすると記録しません')}>
                 <input type="number" min={0} max={1000000} step={500} value={value}
                     onChange={e => onChange(Number(e.target.value))} />
             </Field>
@@ -602,14 +619,14 @@ function LlmLogSection({ value, onChange }: { value: number; onChange: (n: numbe
                     setBusy(true);
                     try {
                         const r = await api.exportLlmCalls();
-                        toast('success', `${r.count} 件を書き出しました (${formatBytes(r.bytes)}): ${r.path}`);
+                        toast('success', `${r.count} ${t('件を書き出しました (')}${formatBytes(r.bytes)}): ${r.path}`);
                     } catch (e) {
                         toast('error', errorMessage(e));
                     } finally {
                         setBusy(false);
                     }
-                }}>{busy ? <Spinner /> : 'JSONL で書き出す'}</Button>
-                <span className="small muted">保存とは別に、押した時点で書き出します</span>
+                }}>{busy ? <Spinner /> : t('JSONL で書き出す')}</Button>
+                <span className="small muted">{t('保存とは別に、押した時点で書き出します')}</span>
             </div>
         </section>
     );
@@ -627,19 +644,19 @@ function StorageSection() {
 
     return (
         <section>
-            <h3>ストレージ</h3>
+            <h3>{t('ストレージ')}</h3>
             {!info ? <Spinner /> : (
                 <>
                     <div className="kv">
-                        <span>ジョブ {formatBytes(info.jobs_bytes)}</span>
-                        <span>取り込み・比較 {formatBytes(info.imports_bytes)}</span>
-                        <span>MSA キャッシュ {formatBytes(info.msa_cache_bytes)}</span>
-                        <span>Boltz の重み {formatBytes(info.boltz_cache_bytes)}</span>
-                        <span>空き {info.disk_free_gb} GB</span>
+                        <span>{t('ジョブ')} {formatBytes(info.jobs_bytes)}</span>
+                        <span>{t('取り込み・比較')} {formatBytes(info.imports_bytes)}</span>
+                        <span>{t('MSA キャッシュ')} {formatBytes(info.msa_cache_bytes)}</span>
+                        <span>{t('Boltz の重み')} {formatBytes(info.boltz_cache_bytes)}</span>
+                        <span>{t('空き')} {info.disk_free_gb} GB</span>
                     </div>
                     <div className="small muted mono">{info.home}</div>
                     <label className="inline-toggle small">
-                        <input type="checkbox" checked={deleteFailed} onChange={e => setDeleteFailed(e.target.checked)} /> 失敗・キャンセルしたジョブも削除する
+                        <input type="checkbox" checked={deleteFailed} onChange={e => setDeleteFailed(e.target.checked)} /> {t('失敗・キャンセルしたジョブも削除する')}
                     </label>
                     <div className="row wrap">
                         <Button size="sm" variant={deleteFailed ? 'danger' : 'default'} disabled={busy} onClick={async () => {
@@ -647,15 +664,15 @@ function StorageSection() {
                             try {
                                 const r = await api.cleanupStorage({ intermediate: true, aligned_older_than_days: 0, delete_failed_jobs: deleteFailed });
                                 setInfo(r.storage);
-                                toast('success', `${formatBytes(r.freed_bytes)} を解放しました${r.jobs_deleted ? ` (ジョブ ${r.jobs_deleted} 件を削除)` : ''}`);
+                                toast('success', `${formatBytes(r.freed_bytes)} ${t('を解放しました')}${r.jobs_deleted ? ` ${t('(ジョブ')} ${r.jobs_deleted} ${t('件を削除')})` : ''}`);
                                 if (r.jobs_deleted) await refreshJobs();
                             } catch (e) {
                                 toast('error', errorMessage(e));
                             } finally {
                                 setBusy(false);
                             }
-                        }}>{busy ? <Spinner size={11} /> : '不要なファイルを削除'}</Button>
-                        <span className="small muted">押した時点で削除します (元に戻せません)。中間ファイルと重ね合わせ表示用のファイルが対象で、予測結果は残ります。</span>
+                        }}>{busy ? <Spinner size={11} /> : t('不要なファイルを削除')}</Button>
+                        <span className="small muted">{t('押した時点で削除します (元に戻せません)。中間ファイルと重ね合わせ表示用のファイルが対象で、予測結果は残ります。')}</span>
                     </div>
                 </>
             )}
@@ -677,16 +694,16 @@ function SsdWearSection({ applecare, onApplecare }: { applecare: boolean; onAppl
         api.ssd().then(setSsd).catch(e => toast('error', errorMessage(e)));
     }, [toast]);
 
-    if (!ssd) return <section><h3>SSD の摩耗</h3><Spinner /></section>;
+    if (!ssd) return <section><h3>{t('SSD の摩耗')}</h3><Spinner /></section>;
     if (!ssd.available) {
         return (
             <section>
-                <h3>SSD の摩耗</h3>
+                <h3>{t('SSD の摩耗')}</h3>
                 <p className="small muted">
-                    読み取れません。macOS 標準の <code>system_profiler</code> は「S.M.A.R.T. status: Verified」しか返さず、
-                    <code>ioreg</code> にも書き込み量の項目がないため、smartmontools が要ります。
-                    <code>brew install smartmontools</code> を入れると、スワップする予測が SSD の寿命の何 % を使うかまで出せるようになります。
-                    入れなくても書き込み量（TB）の見込みは出ます。
+                    {t('読み取れません。macOS 標準の')} <code>system_profiler</code> {t('は「S.M.A.R.T. status: Verified」しか返さず、')}
+                    <code>ioreg</code> {t('にも書き込み量の項目がないため、smartmontools が要ります。')}
+                    <code>brew install smartmontools</code> {t('を入れると、スワップする予測が SSD の寿命の何 % を使うかまで出せるようになります。')}
+                    {t('入れなくても書き込み量（TB）の見込みは出ます。')}
                 </p>
             </section>
         );
@@ -695,34 +712,34 @@ function SsdWearSection({ applecare, onApplecare }: { applecare: boolean; onAppl
     const spare = w && w.available_spare !== null;
     return (
         <section>
-            <h3>SSD の摩耗</h3>
+            <h3>{t('SSD の摩耗')}</h3>
             {w && (
                 <div className="kv">
-                    <span>使用 {w.percentage_used}%</span>
-                    <span>書き込み {w.written_tb} TB</span>
-                    {spare && <span>予備ブロック {w.available_spare}%{w.media_errors ? ` · エラー ${w.media_errors}` : ''}</span>}
-                    {w.power_on_hours !== null && <span>稼働 {w.power_on_hours} 時間</span>}
+                    <span>{t('使用')} {w.percentage_used}%</span>
+                    <span>{t('書き込み')} {w.written_tb} TB</span>
+                    {spare && <span>{t('予備ブロック')} {w.available_spare}%{w.media_errors ? ` ${t('· エラー')} ${w.media_errors}` : ''}</span>}
+                    {w.power_on_hours !== null && <span>{t('稼働')} {w.power_on_hours} {t('時間')}</span>}
                 </div>
             )}
             <p className="small muted">
                 {w?.tb_per_percent !== null && w
                     ? (w.tb_per_percent_basis === 'delta'
-                        ? <>この個体の実測で <strong>{w.tb_per_percent} TB ＝ 寿命 1%</strong>（{w.tb_per_percent_span}% ぶんの変化から測定、記録 {w.readings} 件）。</>
-                        : <>暫定で <strong>{w.tb_per_percent} TB ＝ 寿命 1%</strong>。{w.written_tb} TB で {w.percentage_used}% という 1 点からの外挿なので、切片も直線性も未確認です。</>)
-                    : <>使用率がまだ 0% なので、寿命あたりの換算はできません。1% 動いた時点で出ます。</>}
-                {' '}スワップする予測は SSD へ約 {ssd.mb_per_sec} MB/s、1 日あたり約 {ssd.tb_per_day} TB を書きます
-                {ssd.life_percent_per_day !== null && <>（寿命の約 {ssd.life_percent_per_day}%/日{ssd.life_basis === 'single' ? '、暫定' : ''}）</>}。
+                        ? <>{t('この個体の実測で')} <strong>{w.tb_per_percent} {t('TB ＝ 寿命 1%')}</strong>{t('（')}{w.tb_per_percent_span}{t('% ぶんの変化から測定、記録')} {w.readings} {t('件）。')}</>
+                        : <>{t('暫定で')} <strong>{w.tb_per_percent} {t('TB ＝ 寿命 1%')}</strong>{t('。')}{w.written_tb} {t('TB で')} {w.percentage_used}{t('% という 1 点からの外挿なので、切片も直線性も未確認です。')}</>)
+                    : <>{t('使用率がまだ 0% なので、寿命あたりの換算はできません。1% 動いた時点で出ます。')}</>}
+                {' '}{t('スワップする予測は SSD へ約')} {ssd.mb_per_sec} {t('MB/s、1 日あたり約')} {ssd.tb_per_day} {t('TB を書きます')}
+                {ssd.life_percent_per_day !== null && <>{t('（寿命の約')} {ssd.life_percent_per_day}%/{t('日')}{ssd.life_basis === 'single' ? t('、暫定') : ''}{t('）')}</>}{t('。')}
             </p>
-            <label className="inline-toggle" title="この項目は動作を何も変えません。上の警告の書き方が変わるだけです">
-                <input type="checkbox" checked={applecare} onChange={e => onApplecare(e.target.checked)} /> AppleCare+ に加入している
+            <label className="inline-toggle" title={t('この項目は動作を何も変えません。上の警告の書き方が変わるだけです')}>
+                <input type="checkbox" checked={applecare} onChange={e => onApplecare(e.target.checked)} /> {t('AppleCare+ に加入している')}
             </label>
             <p className={`small ${applecare ? 'muted' : 'warn'}`}>
-                Apple は Mac 内蔵 SSD の TBW を公表しておらず、書き込み量で保証を切ることもしていません。
-                代わりに AppleCare+ は「通常の消耗、または通常の経年劣化に起因する故障」を除外しており、摩耗がそれに当たるかは条文からは決まりません。
-                Apple Silicon の SSD は基板直付けなので、故障＝ロジックボード交換です。
+                {t('Apple は Mac 内蔵 SSD の TBW を公表しておらず、書き込み量で保証を切ることもしていません。')}
+                {t('代わりに AppleCare+ は「通常の消耗、または通常の経年劣化に起因する故障」を除外しており、摩耗がそれに当たるかは条文からは決まりません。')}
+                {t('Apple Silicon の SSD は基板直付けなので、故障＝ロジックボード交換です。')}
                 {applecare
-                    ? ' 加入していても摩耗が通る保証はないので、保証をアテにしない前提で判断してください。'
-                    : ' 未加入と設定されています。摩耗で死んだ場合はロジックボード交換の実費になります。'}
+                    ? t(' 加入していても摩耗が通る保証はないので、保証をアテにしない前提で判断してください。')
+                    : t(' 未加入と設定されています。摩耗で死んだ場合はロジックボード交換の実費になります。')}
             </p>
         </section>
     );
@@ -749,8 +766,8 @@ function AppMemorySection() {
         try {
             const r = await api.releaseMemory();
             toast('success', r.freed_gb >= 0.05 || r.esm_unloaded
-                ? `${r.freed_gb.toFixed(1)} GB 解放しました${r.esm_unloaded ? ' (ESM-2 も降ろしました)' : ''}`
-                : '解放できる分はありませんでした');
+                ? `${r.freed_gb.toFixed(1)} ${t('GB 解放しました')}${r.esm_unloaded ? t(' (ESM-2 も降ろしました)') : ''}`
+                : t('解放できる分はありませんでした'));
             load();
         } catch (e) {
             toast('error', errorMessage(e));
@@ -759,27 +776,27 @@ function AppMemorySection() {
         }
     };
 
-    if (!mem) return <section><h3>アプリ自身のメモリ</h3><Spinner /></section>;
+    if (!mem) return <section><h3>{t('アプリ自身のメモリ')}</h3><Spinner /></section>;
     return (
         <section>
-            <h3>アプリ自身のメモリ</h3>
+            <h3>{t('アプリ自身のメモリ')}</h3>
             <div className="kv">
-                <span>今の使用量 {mem.current_gb !== null ? `${mem.current_gb.toFixed(2)} GB` : '不明'}</span>
+                <span>{t('今の使用量')} {mem.current_gb !== null ? `${mem.current_gb.toFixed(2)} GB` : t('不明')}</span>
                 <span>{mem.samples >= 2 && mem.growth_gb !== null
-                    ? `ジョブ ${mem.samples} 件で ${mem.growth_gb >= 0 ? '+' : ''}${mem.growth_gb.toFixed(2)} GB`
-                    : `ジョブ ${mem.samples} 件ぶん計測`}</span>
-                {mem.torch_mps && <span>torch が Metal から確保 {mem.torch_mps.driver_allocated_gb.toFixed(2)} GB (使用中 {mem.torch_mps.in_use_gb.toFixed(2)} GB)</span>}
+                    ? `${t('ジョブ')} ${mem.samples} ${t('件で')} ${mem.growth_gb >= 0 ? '+' : ''}${mem.growth_gb.toFixed(2)} GB`
+                    : `${t('ジョブ')} ${mem.samples} ${t('件ぶん計測')}`}</span>
+                {mem.torch_mps && <span>{t('torch が Metal から確保')} {mem.torch_mps.driver_allocated_gb.toFixed(2)} {t('GB (使用中')} {mem.torch_mps.in_use_gb.toFixed(2)} GB)</span>}
             </div>
             <p className={`small ${mem.climbing ? 'warn' : 'muted'}`}>
                 {mem.climbing
-                    ? `ジョブをまたいで ${mem.growth_gb?.toFixed(1)} GB 増えています。次の予測がその分だけ狭いメモリで走るので、解放するかアプリを再起動してください。`
-                    : 'ジョブ終了ごとに torch のキャッシュを返しています。この数字が増え続けていなければ、連続実行でメモリが痩せていくことはありません。'}
+                    ? `${t('ジョブをまたいで')} ${mem.growth_gb?.toFixed(1)} ${t('GB 増えています。次の予測がその分だけ狭いメモリで走るので、解放するかアプリを再起動してください。')}`
+                    : t('ジョブ終了ごとに torch のキャッシュを返しています。この数字が増え続けていなければ、連続実行でメモリが痩せていくことはありません。')}
             </p>
             <div className="row wrap">
                 <Button size="sm" disabled={busy} onClick={() => void release()}>
-                    {busy ? <Spinner size={11} /> : '今すぐ解放する'}
+                    {busy ? <Spinner size={11} /> : t('今すぐ解放する')}
                 </Button>
-                <Button size="sm" variant="ghost" onClick={load}>測り直す</Button>
+                <Button size="sm" variant="ghost" onClick={load}>{t('測り直す')}</Button>
             </div>
         </section>
     );
@@ -803,8 +820,8 @@ function GpuMemorySection() {
             setGpu(after);
             setMb(String(after.wired_limit_mb));
             toast('success', value === 0
-                ? 'GPU のメモリ上限を既定に戻しました。反映にはアプリの再起動が要ります'
-                : `GPU のメモリ上限を ${(value / 1024).toFixed(1)} GB にしました。反映にはアプリの再起動が要ります`);
+                ? t('GPU のメモリ上限を既定に戻しました。反映にはアプリの再起動が要ります')
+                : `${t('GPU のメモリ上限を')} ${(value / 1024).toFixed(1)} ${t('GB にしました。反映にはアプリの再起動が要ります')}`);
         } catch (e) {
             toast('error', errorMessage(e));
         } finally {
@@ -812,45 +829,45 @@ function GpuMemorySection() {
         }
     };
 
-    if (!gpu) return <section><h3>GPU のメモリ上限</h3><Spinner /></section>;
+    if (!gpu) return <section><h3>{t('GPU のメモリ上限')}</h3><Spinner /></section>;
     const maxGb = gpu.max_mb / 1024;
     const presets = [Math.round(gpu.total_gb * 0.75), Math.round(gpu.total_gb * 0.83), Math.round(maxGb)]
         .filter((v, i, a) => v > 0 && v <= maxGb && a.indexOf(v) === i);
 
     return (
         <section>
-            <h3>GPU のメモリ上限</h3>
+            <h3>{t('GPU のメモリ上限')}</h3>
             <div className="kv">
-                <span>搭載メモリ {gpu.total_gb} GB</span>
-                <span>今の上限 {gpu.metal_limit_gb !== null ? `${gpu.metal_limit_gb.toFixed(2)} GB` : '不明'}</span>
-                <span>{gpu.is_default ? 'OS の既定値' : `sysctl で ${gpu.wired_limit_mb} MB に設定済み`}</span>
+                <span>{t('搭載メモリ')} {gpu.total_gb} GB</span>
+                <span>{t('今の上限')} {gpu.metal_limit_gb !== null ? `${gpu.metal_limit_gb.toFixed(2)} GB` : t('不明')}</span>
+                <span>{gpu.is_default ? t('OS の既定値') : `${t('sysctl で')} ${gpu.wired_limit_mb} ${t('MB に設定済み')}`}</span>
             </div>
             <p className="small muted">
-                ユニファイドメモリでも、Metal が 1 プロセスに渡す量には上限があります。上げたぶんは macOS と他のアプリから取り上げることになります。
+                {t('ユニファイドメモリでも、Metal が 1 プロセスに渡す量には上限があります。上げたぶんは macOS と他のアプリから取り上げることになります。')}
                 <More>
-                    実測では 1,696 残基（3 本鎖）の予測が 30 GB まで伸びたところで打ち切られ、16 分ぶんが無駄になりました。
-                    609 残基の単量体は 997 秒で完走しています。上限を上げるとその手前で落ちなくなります。
+                    {t('実測では 1,696 残基（3 本鎖）の予測が 30 GB まで伸びたところで打ち切られ、16 分ぶんが無駄になりました。')}
+                    {t('609 残基の単量体は 997 秒で完走しています。上限を上げるとその手前で落ちなくなります。')}
                 </More>
             </p>
             <div className="row wrap">
                 {presets.map(gb => (
                     <Button key={gb} size="sm" disabled={busy} onClick={() => void apply(gb * 1024)}>{gb} GB</Button>
                 ))}
-                <Button size="sm" variant="ghost" disabled={busy || gpu.is_default} onClick={() => void apply(0)}>既定に戻す</Button>
-                {presets.length === 0 && <span className="small muted">この機体では候補を出せませんでした (下の入力で指定してください)</span>}
+                <Button size="sm" variant="ghost" disabled={busy || gpu.is_default} onClick={() => void apply(0)}>{t('既定に戻す')}</Button>
+                {presets.length === 0 && <span className="small muted">{t('この機体では候補を出せませんでした (下の入力で指定してください)')}</span>}
             </div>
-            <Field label="自分で指定 (MB)" hint={`0 で既定値。上限 ${gpu.max_mb} MB — 残り ${gpu.headroom_gb} GB は macOS に残します`}>
+            <Field label={t('自分で指定 (MB)')} hint={`${t('0 で既定値。上限')} ${gpu.max_mb} ${t('MB — 残り')} ${gpu.headroom_gb} ${t('GB は macOS に残します')}`}>
                 <input type="number" min={0} max={gpu.max_mb} step={256} value={mb}
                     onChange={e => setMb(e.target.value)} />
             </Field>
             <div className="row wrap">
                 <Button size="sm" variant="primary" disabled={busy || mb === String(gpu.wired_limit_mb)}
                     onClick={() => void apply(Number(mb))}>
-                    {busy ? <Spinner size={11} /> : '適用する'}
+                    {busy ? <Spinner size={11} /> : t('適用する')}
                 </Button>
                 <span className="small muted">
-                    下の「保存」ではなくこのボタンで反映します。macOS の認証ダイアログが出ます (パスワードはこのアプリを経由しません)。
-                    設定は再起動すると既定に戻り、反映にはこのアプリの再起動が要ります。
+                    {t('下の「保存」ではなくこのボタンで反映します。macOS の認証ダイアログが出ます (パスワードはこのアプリを経由しません)。')}
+                    {t('設定は再起動すると既定に戻り、反映にはこのアプリの再起動が要ります。')}
                 </span>
             </div>
         </section>

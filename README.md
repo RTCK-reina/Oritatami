@@ -2,7 +2,7 @@
 
 *A Mac app for folding proteins on your own machine: Boltz-2 structure prediction, ESM-2
 mutation scoring and a local LLM that proposes what to try next, in one window. Everything
-runs locally — only MSA search and database lookups leave the machine. Japanese UI.*
+runs locally — only MSA search and database lookups leave the machine. Japanese UI, with English available under Settings → アプリ → 言語.*
 
 タンパク質の立体構造を Mac の中で計算して、眺めて、いじって遊ぶためのアプリです。
 配列を並べて予測し、変異を入れて比べ、ローカル LLM に次の一手を提案させる、という流れを 1 つの画面で行えます。

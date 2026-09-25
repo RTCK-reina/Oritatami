@@ -1,4 +1,5 @@
 import { Bond, StructureElement, Unit } from 'molstar/lib/mol-model/structure';
+import { t } from '../i18n';
 import type { Location } from 'molstar/lib/mol-model/location';
 import { ColorTheme } from 'molstar/lib/mol-theme/color';
 import { ColorThemeCategory } from 'molstar/lib/mol-theme/color/categories';
@@ -46,14 +47,14 @@ function PlddtBFactorColorTheme(_ctx: ThemeDataContext, props: PD.Values<Params>
         granularity: 'group',
         color,
         props,
-        description: 'pLDDT (B-factor 列)',
+        description: t('pLDDT (B-factor 列)'),
         legend: {
             kind: 'table-legend',
             table: [
-                ['> 90 とても高い', VERY_HIGH],
-                ['70–90 高い', HIGH],
-                ['50–70 低い', LOW],
-                ['< 50 とても低い', VERY_LOW],
+                [t('> 90 とても高い'), VERY_HIGH],
+                [t('70–90 高い'), HIGH],
+                [t('50–70 低い'), LOW],
+                [t('< 50 とても低い'), VERY_LOW],
             ],
         },
     };

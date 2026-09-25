@@ -17,6 +17,7 @@ import { EXAMPLES } from './examples';
 import { useHotkeys, usePersistentState, useTheme, useWindowWidth, type ThemePref } from './hooks';
 import { StoreProvider, useStore } from './store';
 import { uiEvents } from './uiEvents';
+import { t } from './i18n';
 
 const DEFAULTS = { left: 380, right: 400, results: 320 };
 /** The 3D viewer stops being usable below this; side panels fold away rather than crush it. */
@@ -44,7 +45,7 @@ function AutopilotSwitch() {
         setBusy(true);
         try {
             await api.updateSettings({ autopilot_enabled: next });
-            toast('info', next ? '自律ループを動かします' : '自律ループを止めました (実行中のジョブは最後まで走ります)');
+            toast('info', next ? t('自律ループを動かします') : t('自律ループを止めました (実行中のジョブは最後まで走ります)'));
             load();
         } catch (e) {
             toast('error', errorMessage(e));
@@ -59,29 +60,29 @@ function AutopilotSwitch() {
     const on = st.enabled;
     const blocked = on && !st.accepting;
     const title = [
-        on ? '自律ループ: 動作中' : '自律ループ: 停止中',
-        st.experiment ? `実験名 ${st.experiment}` : null,
-        `${st.strategy === 'climb' ? '山登り' : 'ランダムウォーク'} · 待機 ${st.queued}/${st.max_queued} · 24時間で ${st.used_today} 件`,
+        on ? t('自律ループ: 動作中') : t('自律ループ: 停止中'),
+        st.experiment ? `${t('実験名')} ${st.experiment}` : null,
+        `${st.strategy === 'climb' ? t('山登り') : t('ランダムウォーク')} ${t('· 待機')} ${st.queued}/${st.max_queued} ${t('· 24時間で')} ${st.used_today} ${t('件')}`,
         st.blocked_reason,
     ].filter(Boolean).join('\n');
 
     return (
         <button type="button" className={`pill autopilot-pill ${on ? (blocked ? 'warn' : 'ok') : ''}`}
-            aria-pressed={on} disabled={busy} title={`${title}\nクリックで自律ループの設定 (起点・進め方・禁止リスト)`}
+            aria-pressed={on} disabled={busy} title={`${title}${t('\nクリックで自律ループの設定 (起点・進め方・禁止リスト)')}`}
             onClick={() => uiEvents.emit('openAutopilot')}>
             {busy ? <Spinner size={9} /> : <span className={`dot ${on ? 'on' : ''}`} />}
-            自律{on && st.queued > 0 ? ` ${st.queued}` : ''}
+            {t('自律')}{on && st.queued > 0 ? ` ${st.queued}` : ''}
         </button>
     );
 }
 
-/** Duration in the app's usual shape: "1 時間 20 分", "45 秒". */
+/** Duration in the app's usual shape: '1 時間 20 分', '45 秒'. */
 function human(seconds: number): string {
-    if (seconds < 60) return `${Math.round(seconds)} 秒`;
+    if (seconds < 60) return `${Math.round(seconds)} ${t('秒')}`;
     const m = Math.round(seconds / 60);
-    if (m < 60) return `${m} 分`;
+    if (m < 60) return `${m} ${t('分')}`;
     const h = Math.floor(m / 60);
-    return `${h} 時間${m % 60 ? ` ${m % 60} 分` : ''}`;
+    return `${h} ${t('時間')}${m % 60 ? ` ${m % 60} ${t('分')}` : ''}`;
 }
 
 function clock(at: number): string {
@@ -126,19 +127,19 @@ function QueueEta() {
     // healthy against 0.016 while paging.
     const slow = running?.regime === 'paging';
     const label = eta.complete
-        ? `残り ${human(eta.seconds)}`
-        : eta.counted > 0 ? `残り ${human(eta.seconds)} 以上` : '残り 不明';
+        ? `${t('残り')} ${human(eta.seconds)}`
+        : eta.counted > 0 ? `${t('残り')} ${human(eta.seconds)} ${t('以上')}` : t('残り 不明');
     return (
         <button type="button" className={`pill pill-eta${stalled || slow ? ' pill-warn' : ''}`}
             onClick={() => showLeftTab('jobs')}
             title={[
-                `待機・実行中 ${eta.jobs} 件`,
-                eta.counted ? `見積もれた分の合計 約 ${human(eta.seconds)}` : null,
-                clockText ? (eta.complete ? `終了見込み ${clockText}` : `少なくとも ${clockText} までは塞がります`) : null,
-                eta.unknown ? `${eta.unknown} 件は残り時間を推定できません` : null,
+                `${t('待機・実行中')} ${eta.jobs} ${t('件')}`,
+                eta.counted ? `${t('見積もれた分の合計 約')} ${human(eta.seconds)}` : null,
+                clockText ? (eta.complete ? `${t('終了見込み')} ${clockText}` : `${t('少なくとも')} ${clockText} ${t('までは塞がります')}`) : null,
+                eta.unknown ? `${eta.unknown} ${t('件は残り時間を推定できません')}` : null,
                 running?.note || null,
-                typeof running?.progress === 'number' ? `実行中のジョブ: 経過 ${(running.progress * 100).toFixed(0)}%` : null,
-                '所要時間は過去の実績から。メモリに収まらない分はページング時間として上乗せしています',
+                typeof running?.progress === 'number' ? `${t('実行中のジョブ: 経過')} ${(running.progress * 100).toFixed(0)}%` : null,
+                t('所要時間は過去の実績から。メモリに収まらない分はページング時間として上乗せしています'),
             ].filter(Boolean).join('\n')}>
             <Icon name="rotate" size={11} /> {label}{clockText ? ` · ${clockText}` : ''}
         </button>
@@ -158,8 +159,8 @@ function TopBar({ themePref, onTheme }: { themePref: ThemePref; onTheme: (t: The
                 <svg viewBox="0 0 32 32" width="22" height="22" aria-hidden><path d="M4 23 Q9 5 16 16 T28 9" stroke="var(--accent)" strokeWidth="3.4" fill="none" strokeLinecap="round" /></svg>
                 <span>Oritatami</span>
             </div>
-            <button type="button" className="palette-trigger" onClick={() => uiEvents.emit('openPalette')} title="コマンド検索">
-                <Icon name="search" size={13} /> <span>やりたいことを検索…</span> <Kbd combo="mod+k" />
+            <button type="button" className="palette-trigger" onClick={() => uiEvents.emit('openPalette')} title={t('コマンド検索')}>
+                <Icon name="search" size={13} /> <span>{t('やりたいことを検索…')}</span> <Kbd combo="mod+k" />
             </button>
             <span className="spacer" />
             {running.slice(0, 2).map(j => (
@@ -169,24 +170,24 @@ function TopBar({ themePref, onTheme }: { themePref: ThemePref; onTheme: (t: The
             ))}
             {running.length > 2 && (
                 <button type="button" className="pill pill-run" title={running.slice(2).map(j => j.title).join('\n')}
-                    onClick={() => showLeftTab('jobs')}>ほか {running.length - 2} 件</button>
+                    onClick={() => showLeftTab('jobs')}>{t('ほか')} {running.length - 2} {t('件')}</button>
             )}
-            {queued > 0 && <span className="pill" title="待機中のジョブ">待機 {queued}</span>}
+            {queued > 0 && <span className="pill" title={t('待機中のジョブ')}>{t('待機')} {queued}</span>}
             <QueueEta />
             <AutopilotSwitch />
             <button type="button" className={`pill ${boltzOk ? 'ok' : 'bad'}`} onClick={() => uiEvents.emit('openSettings')}
-                title={boltzOk ? `Boltz-2 ${health?.boltz.version ?? ''} (${health?.mps ? 'GPU' : 'CPU'})` : 'Boltz-2 が見つかりません — クリックで準備状況'}>
+                title={boltzOk ? `Boltz-2 ${health?.boltz.version ?? ''} (${health?.mps ? 'GPU' : 'CPU'})` : t('Boltz-2 が見つかりません — クリックで準備状況')}>
                 Boltz-2 {health ? (health.mps ? 'GPU' : health.torch_probed ? 'CPU' : '…') : ''}
             </button>
             <button type="button" className={`pill ${health?.esm.loaded ? 'ok' : ''}`} onClick={() => uiEvents.emit('openSettings')} title={health?.esm.model}>ESM-2</button>
             <button type="button" className={`pill ${llmOk ? 'ok' : 'bad'}`} onClick={() => uiEvents.emit('openSettings')}
-                title={health?.llm.server ? (health.llm.model_available ? health.llm.model : `${health.llm.model} が未ダウンロード`) : 'llama-server 未起動 — クリックで準備状況'}>LLM</button>
-            <button type="button" className="icon-btn" onClick={() => onTheme(nextTheme)} aria-label="テーマ切り替え"
-                title={`テーマ: ${themePref === 'system' ? 'システムに合わせる' : themePref === 'light' ? 'ライト' : 'ダーク'} (クリックで切り替え)`}>
+                title={health?.llm.server ? (health.llm.model_available ? health.llm.model : `${health.llm.model} ${t('が未ダウンロード')}`) : t('llama-server 未起動 — クリックで準備状況')}>LLM</button>
+            <button type="button" className="icon-btn" onClick={() => onTheme(nextTheme)} aria-label={t('テーマ切り替え')}
+                title={`${t('テーマ:')} ${themePref === 'system' ? t('システムに合わせる') : themePref === 'light' ? t('ライト') : t('ダーク')} ${t('(クリックで切り替え)')}`}>
                 <Icon name={themePref === 'light' ? 'sun' : themePref === 'dark' ? 'moon' : 'layers'} />
             </button>
-            <button type="button" className="icon-btn" onClick={() => uiEvents.emit('openHelp')} aria-label="使い方" title="使い方と用語 (?)"><Icon name="help" /></button>
-            <button type="button" className="icon-btn" onClick={() => uiEvents.emit('openSettings')} aria-label="設定" title="設定"><Icon name="settings" /></button>
+            <button type="button" className="icon-btn" onClick={() => uiEvents.emit('openHelp')} aria-label={t('使い方')} title={t('使い方と用語 (?)')}><Icon name="help" /></button>
+            <button type="button" className="icon-btn" onClick={() => uiEvents.emit('openSettings')} aria-label={t('設定')} title={t('設定')}><Icon name="settings" /></button>
         </header>
     );
 }
@@ -198,8 +199,8 @@ function ConnectionBanner() {
     if (online) return null;
     return (
         <div className="offline-banner" role="alert">
-            <Spinner size={12} /> バックエンドに接続できません。自動で再接続しています…
-            {since && Date.now() - since > 15000 && <span className="small"> 長く続く場合はアプリを起動し直してください (作業台の内容は保存されています)。</span>}
+            <Spinner size={12} /> {t('バックエンドに接続できません。自動で再接続しています…')}
+            {since && Date.now() - since > 15000 && <span className="small"> {t('長く続く場合はアプリを起動し直してください (作業台の内容は保存されています)。')}</span>}
         </div>
     );
 }
@@ -208,11 +209,11 @@ function Toasts() {
     const { toasts, dismissToast } = useStore();
     return (
         <div className="toasts" aria-live="polite">
-            {toasts.map(t => (
-                <div key={t.id} className={`toast toast-${t.kind}`} role={t.kind === 'error' ? 'alert' : 'status'}>
-                    <span className="grow">{t.text}</span>
-                    {t.action && <button type="button" className="link" onClick={() => { t.action?.run(); dismissToast(t.id); }}>{t.action.label}</button>}
-                    <button type="button" className="icon-btn" aria-label="閉じる" onClick={() => dismissToast(t.id)}><Icon name="close" size={12} /></button>
+            {toasts.map(x => (
+                <div key={x.id} className={`toast toast-${x.kind}`} role={x.kind === 'error' ? 'alert' : 'status'}>
+                    <span className="grow">{x.text}</span>
+                    {x.action && <button type="button" className="link" onClick={() => { x.action?.run(); dismissToast(x.id); }}>{x.action.label}</button>}
+                    <button type="button" className="icon-btn" aria-label={t('閉じる')} onClick={() => dismissToast(x.id)}><Icon name="close" size={12} /></button>
                 </div>
             ))}
         </div>
@@ -245,8 +246,8 @@ function Layout() {
         if (now - lastDuplicate.current < 2500) return;
         lastDuplicate.current = now;
         store.toast('info', label
-            ? `「${label}」はすでに実行中です。もう一度押す必要はありません`
-            : '同じ操作がすでに実行中です。もう一度押す必要はありません');
+            ? `${t('「')}${label}${t('」はすでに実行中です。もう一度押す必要はありません')}`
+            : t('同じ操作がすでに実行中です。もう一度押す必要はありません'));
     }), [store]);
     useEffect(() => uiEvents.on('openSettings', () => setDialog('settings')), []);
     useEffect(() => uiEvents.on('openHelp', () => setDialog('help')), []);
@@ -322,43 +323,43 @@ function Layout() {
 
     const commands = useMemo<Command[]>(() => {
         const list: Command[] = [
-            { id: 'predict', section: '作業台', label: '構造を予測する', shortcut: 'mod+enter', keywords: 'predict run boltz 実行 計算', run: () => void runPrediction(), disabled: !workbench.components.length },
-            { id: 'add-protein', section: '作業台', label: 'タンパク質を UniProt から追加', shortcut: 'mod+i', keywords: 'add protein uniprot 検索', run: () => { showLeftTab('workbench'); uiEvents.emit('openAdd', 'uniprot'); } },
-            { id: 'add-paste', section: '作業台', label: '配列を貼り付けて追加 (FASTA)', keywords: 'paste fasta sequence dna rna', run: () => { showLeftTab('workbench'); uiEvents.emit('openAdd', 'paste'); } },
-            { id: 'add-ligand', section: '作業台', label: 'リガンド・薬・補因子を追加', keywords: 'ligand drug smiles ccd pubchem 化合物', run: () => { showLeftTab('workbench'); uiEvents.emit('openAdd', 'ligand'); } },
-            { id: 'add-pdb', section: '作業台', label: 'PDB / AlphaFold DB から取り込む', keywords: 'pdb afdb alphafold import', run: () => { showLeftTab('workbench'); uiEvents.emit('openAdd', 'pdb'); } },
-            { id: 'add-file', section: '作業台', label: '構造ファイル (mmCIF / PDB) を開く', keywords: 'file cif pdb open upload', run: () => { showLeftTab('workbench'); uiEvents.emit('openAdd', 'file'); } },
-            { id: 'add-library', section: '作業台', label: 'ライブラリから開く', keywords: 'library saved 保存', run: () => { showLeftTab('workbench'); uiEvents.emit('openAdd', 'library'); } },
-            { id: 'add-history', section: '作業台', label: '検索履歴からもう一度追加する', keywords: 'history search recent 履歴 前に調べた', run: () => { showLeftTab('workbench'); uiEvents.emit('openAdd', 'history'); } },
-            { id: 'autopilot-plan', section: 'アプリ', label: '自律ループの設定 (起点・進め方・禁止リスト)', keywords: 'autopilot loop 自動 探索 ループ 保護 禁止', run: () => uiEvents.emit('openAutopilot') },
-            { id: 'autopilot-toggle', section: 'アプリ', label: '自律ループをその場で動かす / 止める', shortcut: 'mod+shift+a', keywords: 'autopilot loop 自動 停止 toggle', run: () => uiEvents.emit('toggleAutopilot') },
-            { id: 'ask-focus', section: 'LLM', label: 'LLM に質問を書く', shortcut: '/', keywords: 'ask chat qwen 質問 入力', run: () => { setCollapsed(c => ({ ...c, right: false })); setFullscreen(false); window.setTimeout(() => uiEvents.emit('focusAssistant'), 0); } },
-            { id: 'ask-mutations', section: 'LLM', label: 'LLM に変異を提案させる', keywords: 'ai mutation llm qwen 提案', run: () => requestAssistant('mutations') },
-            { id: 'ask-complex', section: 'LLM', label: 'LLM に結合相手を提案させる', keywords: 'ai complex partner ligand qwen', run: () => requestAssistant('complex') },
-            { id: 'ask-design', section: 'LLM', label: 'LLM に新しい配列を設計させる', keywords: 'ai design de novo qwen', run: () => requestAssistant('design') },
-            { id: 'view-reset', section: '3D ビューア', label: '視点をリセット', shortcut: 'r', keywords: 'camera reset', run: () => uiEvents.emit('viewerAction', 'reset') },
-            { id: 'view-spin', section: '3D ビューア', label: '自動回転の切り替え', shortcut: 's', keywords: 'spin rotate', run: () => uiEvents.emit('viewerAction', 'spin') },
-            { id: 'view-style', section: '3D ビューア', label: '表示のしかたを次へ', shortcut: 'v', keywords: 'style cartoon surface representation リボン 表面', run: () => uiEvents.emit('viewerStyle', 'next') },
-            { id: 'view-color', section: '3D ビューア', label: '色分けを次へ', shortcut: 'c', keywords: 'color plddt chain rainbow 色', run: () => uiEvents.emit('viewerColor', 'next') },
-            { id: 'view-pocket', section: '3D ビューア', label: 'ポケット表示の切り替え', shortcut: 'o', keywords: 'pocket ligand site', run: () => uiEvents.emit('viewerAction', 'pocket') },
-            { id: 'view-shot', section: '3D ビューア', label: '画像を撮る', shortcut: 'p', keywords: 'screenshot image png 画像 保存', run: () => uiEvents.emit('viewerAction', 'screenshot') },
-            { id: 'view-full', section: '3D ビューア', label: 'ビューアを大きく表示 / 戻す', shortcut: 'f', keywords: 'fullscreen maximize', run: () => setFullscreen(f => !f) },
-            { id: 'tab-workbench', section: '表示', label: '作業台を表示', shortcut: 'mod+1', run: () => showLeftTab('workbench') },
-            { id: 'tab-jobs', section: '表示', label: 'ジョブ一覧を表示', shortcut: 'mod+2', keywords: 'jobs history 履歴 一覧 進捗 残り 終了', run: () => showLeftTab('jobs') },
-            { id: 'next-job', section: '表示', label: '次の予測結果へ', shortcut: 'j', keywords: 'next result 次 結果 移動', run: () => stepJob(1) },
-            { id: 'prev-job', section: '表示', label: '前の予測結果へ', shortcut: 'k', keywords: 'previous result 前 結果 移動', run: () => stepJob(-1) },
-            { id: 'tab-board', section: '表示', label: '成果 (スコア順・系統) を表示', shortcut: 'mod+3', keywords: 'leaderboard ranking lineage score plddt 順位 系統 リーダーボード', run: () => showLeftTab('board') },
-            { id: 'toggle-left', section: '表示', label: '左パネルの表示 / 非表示', shortcut: 'mod+b', run: () => setCollapsed(c => ({ ...c, left: !c.left })) },
-            { id: 'toggle-right', section: '表示', label: 'LLM パネルの表示 / 非表示', shortcut: 'mod+shift+b', run: () => setCollapsed(c => ({ ...c, right: !c.right })) },
-            { id: 'theme-light', section: '表示', label: 'ライトテーマにする', keywords: 'theme light 明るい', run: () => setThemePref('light') },
-            { id: 'theme-dark', section: '表示', label: 'ダークテーマにする', keywords: 'theme dark 暗い', run: () => setThemePref('dark') },
-            { id: 'theme-system', section: '表示', label: 'テーマをシステムに合わせる', keywords: 'theme system auto', run: () => setThemePref('system') },
-            { id: 'layout-reset', section: '表示', label: 'パネルの配置を元に戻す', keywords: 'layout reset', run: () => { setSizes(DEFAULTS); setCollapsed({ left: false, right: false }); } },
-            { id: 'settings', section: 'アプリ', label: '設定・準備状況', shortcut: 'mod+,', keywords: 'settings preferences ollama llama model storage 設定 環境設定 準備', run: () => setDialog('settings') },
-            { id: 'help', section: 'アプリ', label: '使い方と用語', shortcut: '?', keywords: 'help glossary plddt ptm iptm pae ヘルプ 使い方 用語 わからない', run: () => setDialog('help') },
+            { id: 'predict', section: t('作業台'), label: t('構造を予測する'), shortcut: 'mod+enter', keywords: t('predict run boltz 実行 計算'), run: () => void runPrediction(), disabled: !workbench.components.length },
+            { id: 'add-protein', section: t('作業台'), label: t('タンパク質を UniProt から追加'), shortcut: 'mod+i', keywords: t('add protein uniprot 検索'), run: () => { showLeftTab('workbench'); uiEvents.emit('openAdd', 'uniprot'); } },
+            { id: 'add-paste', section: t('作業台'), label: t('配列を貼り付けて追加 (FASTA)'), keywords: 'paste fasta sequence dna rna', run: () => { showLeftTab('workbench'); uiEvents.emit('openAdd', 'paste'); } },
+            { id: 'add-ligand', section: t('作業台'), label: t('リガンド・薬・補因子を追加'), keywords: t('ligand drug smiles ccd pubchem 化合物'), run: () => { showLeftTab('workbench'); uiEvents.emit('openAdd', 'ligand'); } },
+            { id: 'add-pdb', section: t('作業台'), label: t('PDB / AlphaFold DB から取り込む'), keywords: 'pdb afdb alphafold import', run: () => { showLeftTab('workbench'); uiEvents.emit('openAdd', 'pdb'); } },
+            { id: 'add-file', section: t('作業台'), label: t('構造ファイル (mmCIF / PDB) を開く'), keywords: 'file cif pdb open upload', run: () => { showLeftTab('workbench'); uiEvents.emit('openAdd', 'file'); } },
+            { id: 'add-library', section: t('作業台'), label: t('ライブラリから開く'), keywords: t('library saved 保存'), run: () => { showLeftTab('workbench'); uiEvents.emit('openAdd', 'library'); } },
+            { id: 'add-history', section: t('作業台'), label: t('検索履歴からもう一度追加する'), keywords: t('history search recent 履歴 前に調べた'), run: () => { showLeftTab('workbench'); uiEvents.emit('openAdd', 'history'); } },
+            { id: 'autopilot-plan', section: t('アプリ'), label: t('自律ループの設定 (起点・進め方・禁止リスト)'), keywords: t('autopilot loop 自動 探索 ループ 保護 禁止'), run: () => uiEvents.emit('openAutopilot') },
+            { id: 'autopilot-toggle', section: t('アプリ'), label: t('自律ループをその場で動かす / 止める'), shortcut: 'mod+shift+a', keywords: t('autopilot loop 自動 停止 toggle'), run: () => uiEvents.emit('toggleAutopilot') },
+            { id: 'ask-focus', section: 'LLM', label: t('LLM に質問を書く'), shortcut: '/', keywords: t('ask chat qwen 質問 入力'), run: () => { setCollapsed(c => ({ ...c, right: false })); setFullscreen(false); window.setTimeout(() => uiEvents.emit('focusAssistant'), 0); } },
+            { id: 'ask-mutations', section: 'LLM', label: t('LLM に変異を提案させる'), keywords: t('ai mutation llm qwen 提案'), run: () => requestAssistant('mutations') },
+            { id: 'ask-complex', section: 'LLM', label: t('LLM に結合相手を提案させる'), keywords: 'ai complex partner ligand qwen', run: () => requestAssistant('complex') },
+            { id: 'ask-design', section: 'LLM', label: t('LLM に新しい配列を設計させる'), keywords: 'ai design de novo qwen', run: () => requestAssistant('design') },
+            { id: 'view-reset', section: t('3D ビューア'), label: t('視点をリセット'), shortcut: 'r', keywords: 'camera reset', run: () => uiEvents.emit('viewerAction', 'reset') },
+            { id: 'view-spin', section: t('3D ビューア'), label: t('自動回転の切り替え'), shortcut: 's', keywords: 'spin rotate', run: () => uiEvents.emit('viewerAction', 'spin') },
+            { id: 'view-style', section: t('3D ビューア'), label: t('表示のしかたを次へ'), shortcut: 'v', keywords: t('style cartoon surface representation リボン 表面'), run: () => uiEvents.emit('viewerStyle', 'next') },
+            { id: 'view-color', section: t('3D ビューア'), label: t('色分けを次へ'), shortcut: 'c', keywords: t('color plddt chain rainbow 色'), run: () => uiEvents.emit('viewerColor', 'next') },
+            { id: 'view-pocket', section: t('3D ビューア'), label: t('ポケット表示の切り替え'), shortcut: 'o', keywords: 'pocket ligand site', run: () => uiEvents.emit('viewerAction', 'pocket') },
+            { id: 'view-shot', section: t('3D ビューア'), label: t('画像を撮る'), shortcut: 'p', keywords: t('screenshot image png 画像 保存'), run: () => uiEvents.emit('viewerAction', 'screenshot') },
+            { id: 'view-full', section: t('3D ビューア'), label: t('ビューアを大きく表示 / 戻す'), shortcut: 'f', keywords: 'fullscreen maximize', run: () => setFullscreen(f => !f) },
+            { id: 'tab-workbench', section: t('表示'), label: t('作業台を表示'), shortcut: 'mod+1', run: () => showLeftTab('workbench') },
+            { id: 'tab-jobs', section: t('表示'), label: t('ジョブ一覧を表示'), shortcut: 'mod+2', keywords: t('jobs history 履歴 一覧 進捗 残り 終了'), run: () => showLeftTab('jobs') },
+            { id: 'next-job', section: t('表示'), label: t('次の予測結果へ'), shortcut: 'j', keywords: t('next result 次 結果 移動'), run: () => stepJob(1) },
+            { id: 'prev-job', section: t('表示'), label: t('前の予測結果へ'), shortcut: 'k', keywords: t('previous result 前 結果 移動'), run: () => stepJob(-1) },
+            { id: 'tab-board', section: t('表示'), label: t('成果 (スコア順・系統) を表示'), shortcut: 'mod+3', keywords: t('leaderboard ranking lineage score plddt 順位 系統 リーダーボード'), run: () => showLeftTab('board') },
+            { id: 'toggle-left', section: t('表示'), label: t('左パネルの表示 / 非表示'), shortcut: 'mod+b', run: () => setCollapsed(c => ({ ...c, left: !c.left })) },
+            { id: 'toggle-right', section: t('表示'), label: t('LLM パネルの表示 / 非表示'), shortcut: 'mod+shift+b', run: () => setCollapsed(c => ({ ...c, right: !c.right })) },
+            { id: 'theme-light', section: t('表示'), label: t('ライトテーマにする'), keywords: t('theme light 明るい'), run: () => setThemePref('light') },
+            { id: 'theme-dark', section: t('表示'), label: t('ダークテーマにする'), keywords: t('theme dark 暗い'), run: () => setThemePref('dark') },
+            { id: 'theme-system', section: t('表示'), label: t('テーマをシステムに合わせる'), keywords: 'theme system auto', run: () => setThemePref('system') },
+            { id: 'layout-reset', section: t('表示'), label: t('パネルの配置を元に戻す'), keywords: 'layout reset', run: () => { setSizes(DEFAULTS); setCollapsed({ left: false, right: false }); } },
+            { id: 'settings', section: t('アプリ'), label: t('設定・準備状況'), shortcut: 'mod+,', keywords: t('settings preferences ollama llama model storage 設定 環境設定 準備'), run: () => setDialog('settings') },
+            { id: 'help', section: t('アプリ'), label: t('使い方と用語'), shortcut: '?', keywords: t('help glossary plddt ptm iptm pae ヘルプ 使い方 用語 わからない'), run: () => setDialog('help') },
         ];
-        EXAMPLES.forEach(ex => list.push({ id: `ex-${ex.id}`, section: '例を開く', label: `${ex.title} — ${ex.summary}`, keywords: `example ${ex.tags.join(' ')}`, run: () => void openExample(ex) }));
-        jobs.slice(0, 40).forEach(j => list.push({ id: `job-${j.id}`, section: 'ジョブを開く', label: j.title, keywords: `${j.kind} ${j.status}`, run: () => { showLeftTab('jobs'); openJob(j.id); } }));
+        EXAMPLES.forEach(ex => list.push({ id: `ex-${ex.id}`, section: t('例を開く'), label: `${ex.title} — ${ex.summary}`, keywords: `example ${ex.tags.join(' ')}`, run: () => void openExample(ex) }));
+        jobs.slice(0, 40).forEach(j => list.push({ id: `job-${j.id}`, section: t('ジョブを開く'), label: j.title, keywords: `${j.kind} ${j.status}`, run: () => { showLeftTab('jobs'); openJob(j.id); } }));
         return list;
     }, [runPrediction, workbench.components.length, showLeftTab, requestAssistant, setCollapsed, setThemePref, setSizes, openExample, jobs, openJob]);
 
@@ -405,17 +406,17 @@ function Layout() {
             <ConnectionBanner />
             <main className="layout" style={{ gridTemplateColumns: columns }}>
                 {/* Panels stay mounted while hidden so in-flight work (an LLM request, an open dialog) survives. */}
-                <aside className="col-left" aria-label="作業台とジョブ" hidden={!showLeft}>
+                <aside className="col-left" aria-label={t('作業台とジョブ')} hidden={!showLeft}>
                     <div className="col-tabs">
                         <Tabs value={left} onChange={setLeft} tabs={[
-                            { id: 'workbench', label: '作業台', title: '⌘1' },
-                            { id: 'jobs', label: 'ジョブ', badge: active || undefined, title: '⌘2' },
-                            { id: 'board', label: '成果', title: '⌘3 — スコア順と系統' },
+                            { id: 'workbench', label: t('作業台'), title: '⌘1' },
+                            { id: 'jobs', label: t('ジョブ'), badge: active || undefined, title: '⌘2' },
+                            { id: 'board', label: t('成果'), title: t('⌘3 — スコア順と系統') },
                         ]} />
-                        <button type="button" className="icon-btn collapse-btn" onClick={() => setCollapsed(c => ({ ...c, left: true }))} aria-label="左パネルを隠す" title="隠す (⌘B)"><Icon name="chevron-left" /></button>
+                        <button type="button" className="icon-btn collapse-btn" onClick={() => setCollapsed(c => ({ ...c, left: true }))} aria-label={t('左パネルを隠す')} title={t('隠す (⌘B)')}><Icon name="chevron-left" /></button>
                     </div>
                     <div className="col-body">
-                        <ErrorBoundary area={left === 'workbench' ? '作業台' : left === 'jobs' ? 'ジョブ一覧' : '成果'}>
+                        <ErrorBoundary area={left === 'workbench' ? t('作業台') : left === 'jobs' ? t('ジョブ一覧') : t('成果')}>
                             {left === 'workbench' ? <WorkbenchPanel />
                                 : left === 'jobs' ? <JobsPanel />
                                     : <LeaderboardPanel />}
@@ -423,46 +424,46 @@ function Layout() {
                     </div>
                 </aside>
                 {showLeft && (
-                    <Splitter orientation="vertical" label="左パネルの幅" value={leftW} min={300}
+                    <Splitter orientation="vertical" label={t('左パネルの幅')} value={leftW} min={300}
                         max={Math.max(300, Math.min(620, width - (showRight ? rightW + 5 : RAIL) - MIN_CENTER - 5))}
                         onChange={v => setSizes(s => ({ ...s, left: v }))} onReset={() => setSizes(s => ({ ...s, left: DEFAULTS.left }))} />
                 )}
                 {!showLeft && !fullscreen && (
                     <button type="button" className={`rail ${folded.left ? 'rail-folded' : ''}`} onClick={() => unfold('left')}
-                        aria-label="左パネルを表示"
-                        title={folded.left ? 'ウィンドウが狭いので畳んでいます。広げると自動で戻ります (クリックでも開きます)' : '作業台とジョブを表示 (⌘B)'}>
+                        aria-label={t('左パネルを表示')}
+                        title={folded.left ? t('ウィンドウが狭いので畳んでいます。広げると自動で戻ります (クリックでも開きます)') : t('作業台とジョブを表示 (⌘B)')}>
                         <Icon name="chevron-right" />
-                        <span className="rail-label">作業台・ジョブ{active ? ` (${active})` : ''}</span>
+                        <span className="rail-label">{t('作業台・ジョブ')}{active ? ` (${active})` : ''}</span>
                     </button>
                 )}
                 <section className="col-center" style={{ gridTemplateRows: fullscreen ? 'minmax(0, 1fr)' : `minmax(0, 1fr) 5px ${sizes.results}px` }}>
-                    <ErrorBoundary area="3D ビューア">
+                    <ErrorBoundary area={t('3D ビューア')}>
                         <ViewerPanel theme={theme} fullscreen={fullscreen} onToggleFullscreen={() => setFullscreen(f => !f)} />
                     </ErrorBoundary>
                     {!fullscreen && (
-                        <Splitter orientation="horizontal" label="結果パネルの高さ" value={sizes.results} min={140} max={Math.max(200, window.innerHeight - 260)} direction={-1}
+                        <Splitter orientation="horizontal" label={t('結果パネルの高さ')} value={sizes.results} min={140} max={Math.max(200, window.innerHeight - 260)} direction={-1}
                             onChange={v => setSizes(s => ({ ...s, results: v }))} onReset={() => setSizes(s => ({ ...s, results: DEFAULTS.results }))} />
                     )}
                     <div className="results-slot" hidden={fullscreen}>
-                        <ErrorBoundary area="結果">
+                        <ErrorBoundary area={t('結果')}>
                             <ResultsPanel />
                         </ErrorBoundary>
                     </div>
                 </section>
                 {showRight && (
-                    <Splitter orientation="vertical" label="LLM パネルの幅" value={rightW} min={300} direction={-1}
+                    <Splitter orientation="vertical" label={t('LLM パネルの幅')} value={rightW} min={300} direction={-1}
                         max={Math.max(300, Math.min(640, width - (showLeft ? leftW + 5 : RAIL) - MIN_CENTER - 5))}
                         onChange={v => setSizes(s => ({ ...s, right: v }))} onReset={() => setSizes(s => ({ ...s, right: DEFAULTS.right }))} />
                 )}
-                <aside className="col-right" aria-label="LLM アシスタント" hidden={!showRight}>
-                    <ErrorBoundary area="LLM アシスタント">
+                <aside className="col-right" aria-label={t('LLM アシスタント')} hidden={!showRight}>
+                    <ErrorBoundary area={t('LLM アシスタント')}>
                         <AssistantPanel onCollapse={() => setCollapsed(c => ({ ...c, right: true }))} />
                     </ErrorBoundary>
                 </aside>
                 {!showRight && !fullscreen && (
                     <button type="button" className={`rail rail-right ${folded.right ? 'rail-folded' : ''}`} onClick={() => unfold('right')}
-                        aria-label="LLM パネルを表示"
-                        title={folded.right ? 'ウィンドウが狭いので畳んでいます。広げると自動で戻ります (クリックでも開きます)' : 'LLM を表示 (⌘⇧B)'}>
+                        aria-label={t('LLM パネルを表示')}
+                        title={folded.right ? t('ウィンドウが狭いので畳んでいます。広げると自動で戻ります (クリックでも開きます)') : t('LLM を表示 (⌘⇧B)')}>
                         <Icon name="chevron-left" />
                         <span className="rail-label">LLM</span>
                     </button>

@@ -1,3 +1,4 @@
+import { t } from './i18n';
 import { uiEvents } from './uiEvents';
 import type {
     Accelerator,
@@ -14,6 +15,7 @@ import type {
     LibraryItem,
     LlmCall,
     LlmStatus,
+    MsaAlignment,
     Proposal,
     SearchRecord,
     Settings,
@@ -62,7 +64,7 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
     } catch (e) {
         if (e instanceof DOMException && e.name === 'AbortError') throw e;
         setOnline(false);
-        throw new ApiError(0, `バックエンドに接続できません (${e instanceof Error ? e.message : String(e)})`);
+        throw new ApiError(0, `${t('バックエンドに接続できません (')}${e instanceof Error ? e.message : String(e)})`);
     }
     setOnline(true);
     const text = await resp.text();
@@ -432,6 +434,7 @@ export const api = {
     exportJobToFolder: (id: string) => post<{ path: string; bytes: number }>(`/api/jobs/${q(id)}/export`),
     exportZipUrl: (id: string) => `/api/jobs/${q(id)}/export.zip`,
     structurePdbUrl: (id: string, model: number) => `/api/jobs/${q(id)}/structure.pdb?model=${model}`,
+    methodsUrl: (id: string, lang: 'ja' | 'en') => `/api/jobs/${q(id)}/methods.txt?lang=${lang}`,
     saveDataUrl: (filename: string, dataUrl: string, reveal = true) =>
         post<{ path: string }>('/api/files/save', { filename, data_url: dataUrl, reveal }),
     notify: (title: string, message: string) => post<{ shown: boolean }>('/api/notify', { title, message }),
@@ -456,6 +459,7 @@ export const api = {
         '/api/system/memory/release', {}),
     deleteJob: (id: string) => del<{ deleted: string }>(`/api/jobs/${q(id)}`),
     jobLog: (id: string) => get<string>(`/api/jobs/${q(id)}/log`),
+    jobMsa: (id: string) => get<{ alignments: MsaAlignment[] }>(`/api/jobs/${q(id)}/msa`),
     revealJob: (id: string) => post<{ opened: string }>(`/api/jobs/${q(id)}/reveal`),
     jobFileUrl: (id: string, rel: string) => `/api/jobs/${q(id)}/files/${rel.split('/').map(q).join('/')}`,
 
