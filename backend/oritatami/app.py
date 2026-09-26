@@ -164,8 +164,14 @@ async def _not_found(_: Request, exc: Exception) -> JSONResponse:
 
 
 @app.exception_handler(esm.EsmUnavailable)
+@app.exception_handler(esm.EsmBusy)
 async def _esm_missing(_: Request, exc: Exception) -> JSONResponse:
     return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+
+@app.exception_handler(PermissionError)
+async def _forbidden(_: Request, exc: PermissionError) -> JSONResponse:
+    return JSONResponse(status_code=403, content={"detail": str(exc)})
 
 
 @app.exception_handler(Exception)
@@ -248,7 +254,7 @@ def llm_status() -> dict[str, Any]:
 
 @app.post("/api/llm/start")
 def llm_start() -> dict[str, Any]:
-    """Start Ollama, fetching it first if this machine has none.
+    """Start llama-server, fetching it first if this machine has none.
 
     The button that calls this is the consent: a 150 MB download does not start on its own,
     and once it has, the caller watches ``/api/llm/status`` for the progress.
@@ -263,11 +269,19 @@ def llm_install() -> dict[str, Any]:
 
 @app.post("/api/llm/pull")
 def llm_pull(body: PullBody) -> dict[str, Any]:
-    if not llm.server_up():
-        started = llm.ensure_server()
-        if not started.get("running"):
-            raise llm.LlmError(started.get("error") or "Ollama を起動できません")
+    # Pulling is a registry download — it works before any server is up at all.
     return llm.start_pull(body.model)
+
+
+@app.post("/api/llm/pull/cancel")
+def llm_pull_cancel() -> dict[str, Any]:
+    return llm.cancel_pull()
+
+
+@app.post("/api/llm/chat/cancel")
+def llm_chat_cancel() -> dict[str, Any]:
+    # Closing the request socket makes llama-server drop the task itself.
+    return {"cancelled": llm.cancel_chats()}
 
 
 # ------------------------------------------------------------------ sequences / chemistry
@@ -608,6 +622,7 @@ def queue_eta() -> dict[str, Any]:
                        if j["status"] in ("queued", "running")),
                       key=lambda j: j["created_at"]):
         seconds: float | None = None
+        baseline: float | None = None
         detail: dict[str, Any] = {}
         normalized = None
         if job["kind"] == "predict":
@@ -617,7 +632,11 @@ def queue_eta() -> dict[str, Any]:
                              for c in normalized["components"])
                 reusable = (server and get_settings().reuse_msa_for_variants
                             and boltz.find_reusable_msa(normalized) is not None)
-                seconds = float(estimate.estimate(normalized, server and not reusable, history)["seconds"])
+                est = estimate.estimate(normalized, server and not reusable, history)
+                seconds = float(est["seconds"])
+                # ``remaining`` adds the paging the live footprint implies on top of its
+                # baseline, so the predicted paging must not be inside the baseline too.
+                baseline = seconds - float((est.get("breakdown") or {}).get("paging") or 0.0)
             except Exception:  # a spec we cannot normalise still occupies the queue
                 seconds = None
         else:
@@ -629,7 +648,7 @@ def queue_eta() -> dict[str, Any]:
             # which is the only thing that stays true once the machine starts swapping.
             live = state.jobs.live(job["id"]) or {}
             started = live.get("started_at") or job.get("started_at") or now
-            detail = estimate.remaining(normalized, now - started, seconds or 0.0, live, history)
+            detail = estimate.remaining(normalized, now - started, baseline or 0.0, live, history)
             seconds = detail["seconds"]
         if seconds is None:
             unknown += 1
@@ -1144,6 +1163,56 @@ def job_files(job_id: str, rel: str) -> FileResponse:
     return FileResponse(path, media_type="text/plain", filename=path.name if rel.endswith(".cif") else None)
 
 
+_MSA_SEQ_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-*")
+
+
+@app.get("/api/jobs/{job_id}/msa")
+def job_msa(job_id: str) -> dict[str, Any]:
+    """The alignment(s) behind a prediction: per-column coverage/identity plus a sample of rows."""
+    job = state.db.get_job(job_id)
+    if job is None:
+        raise HTTPException(404, "ジョブが見つかりません")
+    if job["kind"] != "predict":
+        raise HTTPException(400, "予測ジョブではありません")
+    job_dir = jobs_dir() / job_id
+    # fresh runs write msa/ under boltz_results_complex; a reused cache entry lands in input/msa
+    csvs = sorted((job_dir / "out" / "boltz_results_complex" / "msa").glob("*.csv"))
+    csvs += sorted((job_dir / "input" / "msa").glob("*.csv"))
+    alignments = []
+    for path in csvs:
+        rows = []
+        for line in path.read_text("utf-8", "replace").splitlines():
+            key, sep, seq = line.partition(",")
+            if sep and seq.strip():
+                rows.append((key.strip(), seq.strip()))
+        # boltz writes a `key,sequence` header row; the first real row is the query
+        if rows and (rows[0][0].lower() == "key"
+                     or any(c not in _MSA_SEQ_CHARS for c in rows[0][1])):
+            rows = rows[1:]
+        if len(rows) < 2:
+            continue
+        (query_key, query), hits = rows[0], rows[1:]
+        width = len(query)
+        coverage = [0] * width
+        identity = [0] * width
+        for _, hseq in hits:
+            for i in range(width):
+                if i < len(hseq) and hseq[i] != "-":
+                    coverage[i] += 1
+                    if hseq[i] == query[i]:
+                        identity[i] += 1
+        n = max(1, len(hits))
+        step = max(1, len(hits) // 60)
+        alignments.append({
+            "file": path.name, "query": query, "query_key": query_key,
+            "depth": len(hits), "columns": width,
+            "coverage": [round(v / n, 3) for v in coverage],
+            "identity": [round(v / n, 3) for v in identity],
+            "sample": [{"key": k, "seq": s} for k, s in hits[::step]][:60],
+        })
+    return {"alignments": alignments}
+
+
 def _finished_job(job_id: str) -> dict[str, Any]:
     job = state.db.get_job(job_id)
     if job is None:
@@ -1167,6 +1236,17 @@ def export_to_folder(job_id: str) -> dict[str, Any]:
     path = exporter.save_to_exports(data, name)
     exporter.reveal(path)
     return {"path": str(path), "bytes": len(data)}
+
+
+@app.get("/api/jobs/{job_id}/methods.txt")
+def methods_txt(job_id: str, lang: str = "ja") -> Response:
+    if lang not in ("ja", "en"):
+        raise HTTPException(400, "lang は ja か en です")
+    job = _finished_job(job_id)
+    text = exporter.methods_text(job, lang)
+    name = f"{exporter.safe_name(job['title'])}_methods_{lang}.txt"
+    return Response(text, media_type="text/plain; charset=utf-8",
+                    headers={"Content-Disposition": f"attachment; filename=\"methods.txt\"; filename*=UTF-8''{quote(name)}"})
 
 
 @app.get("/api/jobs/{job_id}/structure.pdb")
@@ -1317,7 +1397,7 @@ def assistant_ask(body: AskBody) -> dict[str, Any]:
     if not llm.server_up():
         started = llm.ensure_server()
         if not started.get("running"):
-            raise llm.LlmError(started.get("error") or "Ollama が起動していません")
+            raise llm.LlmError(started.get("error") or "llama-server が起動していません")
     heavy_model = get_settings().llm_model_heavy.strip()
     if body.heavy and not heavy_model:
         raise HTTPException(400, "じっくり答えるモデルが設定されていません。設定画面で指定してください")

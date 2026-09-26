@@ -92,12 +92,12 @@ def frontend_dist() -> Path:
 
 @dataclass
 class Settings:
-    # Local LLM (Ollama)
+    # Local LLM (llama-server; the settings keep their ollama_* names for compatibility)
     ollama_url: str = "http://127.0.0.1:11434"
     # Empty = find it: the copy inside the .app, then the one this app downloaded, then
     # whatever is installed on the machine.
     ollama_bin: str = ""
-    llm_model: str = "qwen3.5:9b"
+    llm_model: str = "gemma3:4b"
     # Optional second model, used only when the person presses じっくり答える. Empty = the
     # button stays off. It is never used by the autopilot: a slower model there would cut
     # the number of variants the loop gets through, for prose nobody reads.
@@ -106,6 +106,10 @@ class Settings:
     llm_log_limit: int = 5000
     llm_think: bool = False
     llm_temperature: float = 0.6
+    # llama.cpp --n-gpu-layers -1 (the whole model on Metal). Off runs the LLM on the CPU
+    # only — slower, but the right answer on machines whose GPU is slower than their CPU
+    # (a virtualised Metal device is ~45x worse) or too small for the model.
+    llm_gpu: bool = True
     # Structure prediction (Boltz-2)
     boltz_bin: str = ""  # empty = the boltz next to the running interpreter
     boltz_cache: str = str(Path.home() / ".boltz")
@@ -274,7 +278,7 @@ def _coerce(name: str, value: Any, default: Any) -> Any:
 # Errors from here are shown to the user verbatim in the settings dialog, so they have
 # to name the field the way the dialog labels it — not by its internal key.
 _LABELS = {
-    "ollama_bin": "Ollama の場所",
+    "ollama_bin": "llama-server の場所",
     "diffusion_samples": "既定のサンプル数", "recycling_steps": "既定のリサイクル",
     "sampling_steps": "既定の拡散ステップ", "llm_model": "使うモデル",
     "llm_model_heavy": "じっくり答えるときのモデル",
@@ -286,7 +290,8 @@ _LABELS = {
     "autopilot_protect_interfaces": "界面の残基を保護する",
     "mpnn_enabled": "逆折り畳みで確認する",
     "mpnn_veto": "逆折り畳みの却下ライン",
-    "llm_temperature": "温度", "ollama_url": "Ollama URL",
+    "llm_temperature": "温度", "llm_gpu": "LLM を GPU で実行する",
+    "ollama_url": "llama-server URL",
     "msa_server_url": "MSA サーバー", "esm_model": "ESM-2 のモデル",
     "boltz_cache": "キャッシュ (重み・化学辞書)",
     "autopilot_protected_residues": "変更を禁止する残基",
@@ -420,9 +425,13 @@ def update_settings(patch: dict[str, Any]) -> Settings:
             raise ValueError("計算デバイスは 自動 / GPU (MPS) / CPU のいずれかです")
         if new.esm_device not in ("auto", "mps", "cpu"):
             raise ValueError("ESM-2 のデバイスは 自動 / GPU (MPS) / CPU のいずれかです")
-        for key in ("diffusion_samples", "recycling_steps", "sampling_steps"):
-            if getattr(new, key) < 1:
-                raise ValueError(f"{label(key)} は 1 以上にしてください")
+        # Same caps normalize_spec enforces on a submission: a default outside them would
+        # make every workbench-built spec fail validation after the settings saved cleanly.
+        _BOUNDS = {"diffusion_samples": (1, 10), "recycling_steps": (1, 10),
+                   "sampling_steps": (10, 500)}
+        for key, (lo, hi) in _BOUNDS.items():
+            if not lo <= getattr(new, key) <= hi:
+                raise ValueError(f"{label(key)} は {lo}〜{hi} にしてください")
         if new.autopilot_max_variants_per_job < 0:
             raise ValueError("1ジョブあたりの変異体数は 0 以上にしてください")
         if new.autopilot_daily_budget < 0:

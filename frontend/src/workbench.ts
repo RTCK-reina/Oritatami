@@ -1,16 +1,17 @@
 import type { ComponentType, PolymerType, PredictParams, SpecOut, WBComponent, Workbench } from './types';
+import { t } from './i18n';
 
 export const AMINO_ACIDS = 'ACDEFGHIKLMNPQRSTVWY';
 const ALPHABET: Record<PolymerType, string> = { protein: AMINO_ACIDS, dna: 'ACGTN', rna: 'ACGUN' };
 
 export const AA_INFO: Record<string, { name: string; group: string }> = {
-    A: { name: 'アラニン', group: '疎水性' }, V: { name: 'バリン', group: '疎水性' }, L: { name: 'ロイシン', group: '疎水性' },
-    I: { name: 'イソロイシン', group: '疎水性' }, M: { name: 'メチオニン', group: '疎水性' }, F: { name: 'フェニルアラニン', group: '芳香族' },
-    W: { name: 'トリプトファン', group: '芳香族' }, Y: { name: 'チロシン', group: '芳香族' }, S: { name: 'セリン', group: '極性' },
-    T: { name: 'トレオニン', group: '極性' }, N: { name: 'アスパラギン', group: '極性' }, Q: { name: 'グルタミン', group: '極性' },
-    C: { name: 'システイン', group: '特殊' }, G: { name: 'グリシン', group: '特殊' }, P: { name: 'プロリン', group: '特殊' },
-    D: { name: 'アスパラギン酸', group: '酸性' }, E: { name: 'グルタミン酸', group: '酸性' }, K: { name: 'リシン', group: '塩基性' },
-    R: { name: 'アルギニン', group: '塩基性' }, H: { name: 'ヒスチジン', group: '塩基性' },
+    A: { name: t('アラニン'), group: '疎水性' }, V: { name: t('バリン'), group: '疎水性' }, L: { name: t('ロイシン'), group: '疎水性' },
+    I: { name: t('イソロイシン'), group: '疎水性' }, M: { name: t('メチオニン'), group: '疎水性' }, F: { name: t('フェニルアラニン'), group: '芳香族' },
+    W: { name: t('トリプトファン'), group: '芳香族' }, Y: { name: t('チロシン'), group: '芳香族' }, S: { name: t('セリン'), group: '極性' },
+    T: { name: t('トレオニン'), group: '極性' }, N: { name: t('アスパラギン'), group: '極性' }, Q: { name: t('グルタミン'), group: '極性' },
+    C: { name: t('システイン'), group: '特殊' }, G: { name: t('グリシン'), group: '特殊' }, P: { name: t('プロリン'), group: '特殊' },
+    D: { name: t('アスパラギン酸'), group: '酸性' }, E: { name: t('グルタミン酸'), group: '酸性' }, K: { name: t('リシン'), group: '塩基性' },
+    R: { name: t('アルギニン'), group: '塩基性' }, H: { name: t('ヒスチジン'), group: '塩基性' },
 };
 
 export const GROUP_COLOR: Record<string, string> = {
@@ -28,14 +29,14 @@ export function defaultParams(): PredictParams {
 }
 
 export function emptyWorkbench(): Workbench {
-    return { name: '新しい作業台', components: [], affinityBinderUid: null, params: defaultParams(), parentJobId: null };
+    return { name: t('新しい作業台'), components: [], affinityBinderUid: null, params: defaultParams(), parentJobId: null };
 }
 
 export function cleanSequence(raw: string, type: PolymerType): { sequence: string; error: string | null } {
     const sequence = raw.replace(/^>.*$/gm, '').replace(/[\s\d*]/g, '').toUpperCase();
-    if (!sequence) return { sequence, error: '配列が空です' };
+    if (!sequence) return { sequence, error: t('配列が空です') };
     const bad = [...new Set([...sequence].filter(c => !ALPHABET[type].includes(c)))];
-    if (bad.length) return { sequence, error: `使えない文字: ${bad.join('')}` };
+    if (bad.length) return { sequence, error: `${t('使えない文字:')} ${bad.join('')}` };
     return { sequence, error: null };
 }
 
@@ -79,13 +80,13 @@ export function applyMutationCodes(sequence: string, codes: string[]): string {
     const chars = [...sequence];
     for (const raw of codes) {
         const m = MUT_RE.exec(raw.trim());
-        if (!m) throw new Error(`変異の書式が不正です: ${raw}`);
+        if (!m) throw new Error(`${t('変異の書式が不正です:')} ${raw}`);
         const wt = m[2].toUpperCase();
         const pos = Number(m[3]);
         const mt = m[4].toUpperCase();
-        if (!AMINO_ACIDS.includes(wt) || !AMINO_ACIDS.includes(mt)) throw new Error(`標準アミノ酸ではありません: ${raw}`);
-        if (pos < 1 || pos > chars.length) throw new Error(`${raw}: 位置 ${pos} は範囲外です (長さ ${chars.length})`);
-        if (sequence[pos - 1] !== wt) throw new Error(`${raw}: 位置 ${pos} は ${sequence[pos - 1]} です`);
+        if (!AMINO_ACIDS.includes(wt) || !AMINO_ACIDS.includes(mt)) throw new Error(`${t('標準アミノ酸ではありません:')} ${raw}`);
+        if (pos < 1 || pos > chars.length) throw new Error(`${raw}${t(': 位置')} ${pos} ${t('は範囲外です (長さ')} ${chars.length})`);
+        if (sequence[pos - 1] !== wt) throw new Error(`${raw}${t(': 位置')} ${pos} ${t('は')} ${sequence[pos - 1]} ${t('です')}`);
         chars[pos - 1] = mt;
     }
     return chars.join('');
@@ -165,8 +166,8 @@ export function fmt(v: number | null | undefined, digits = 2): string {
 }
 
 export function formatDuration(sec: number): string {
-    if (sec < 60) return `${Math.round(sec)} 秒`;
+    if (sec < 60) return `${Math.round(sec)} ${t('秒')}`;
     const m = Math.floor(sec / 60);
     const s = Math.round(sec % 60);
-    return `${m} 分 ${s} 秒`;
+    return `${m} ${t('分')} ${s} ${t('秒')}`;
 }

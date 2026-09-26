@@ -969,3 +969,8 @@ table.variants tr.current td { background: color-mix(in srgb, var(--accent) 10%,
 /* Ollama が自分で入ってくるときの進捗 */
 .setup-item .setup-progress { grid-column: 1 / -1; margin: 4px 0 2px; }
 .setup-compact .setup-item .setup-progress { grid-column: 1 / -1; }
+.msa-coverage .msa-fill { fill: color-mix(in srgb, var(--accent) 28%, transparent); stroke: none; }
+.msa-rows { font-family: var(--mono); font-size: 11px; white-space: pre; overflow: auto; max-height: 40vh; margin: 0; padding: 10px 12px; background: var(--bg-1); border: 1px solid var(--line); border-radius: 6px; }
+.msa-rows .q { font-weight: 700; }
+.msa-meta { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; }
+.msa-section { margin-bottom: 20px; }

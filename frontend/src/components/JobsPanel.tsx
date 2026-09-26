@@ -4,13 +4,14 @@ import { useStore } from '../store';
 import type { JobSummary, LiveMemory } from '../types';
 import { fmt, formatDuration } from '../workbench';
 import { Button, Empty, Icon, Menu, Spinner, StatusDot } from './ui';
+import { t } from '../i18n';
 
 type Filter = 'all' | 'active' | 'predict' | 'scan' | 'refine' | 'starred' | 'auto' | 'manual';
-const KIND_LABEL: Record<string, string> = { predict: '予測', scan: 'スキャン', refine: 'ESM改良' };
+const KIND_LABEL: Record<string, string> = { predict: t('予測'), scan: t('スキャン'), refine: t('ESM改良') };
 const FILTERS: { id: Filter; label: string }[] = [
-    { id: 'all', label: 'すべて' }, { id: 'active', label: '実行中' }, { id: 'predict', label: '予測' },
-    { id: 'scan', label: 'スキャン' }, { id: 'refine', label: 'ESM改良' },
-    { id: 'auto', label: '自律ループ' }, { id: 'manual', label: '手動' }, { id: 'starred', label: '★' },
+    { id: 'all', label: t('すべて') }, { id: 'active', label: t('実行中') }, { id: 'predict', label: t('予測') },
+    { id: 'scan', label: t('スキャン') }, { id: 'refine', label: t('ESM改良') },
+    { id: 'auto', label: t('自律ループ') }, { id: 'manual', label: t('手動') }, { id: 'starred', label: '★' },
 ];
 
 /** Which of these did the loop start? Without this the list mixes a night's worth of
@@ -78,11 +79,11 @@ export function JobsPanel() {
             <div className="panel-head jobs-head">
                 <label className="search-box">
                     <Icon name="search" size={13} />
-                    <input value={query} onChange={e => setQuery(e.target.value)} placeholder="名前・変異で絞り込み" aria-label="ジョブを検索" />
+                    <input value={query} onChange={e => setQuery(e.target.value)} placeholder={t('名前・変異で絞り込み')} aria-label={t('ジョブを検索')} />
                 </label>
-                <Menu label="整理" items={[
-                    { label: confirmCancelAll ? `本当に待機中をすべて取り消す (${queuedCount})` : `待機中をすべて取り消す (${queuedCount})`,
-                      hint: '実行中のジョブはそのまま。取り消したジョブは「再実行」で戻せます',
+                <Menu label={t('整理')} items={[
+                    { label: confirmCancelAll ? `${t('本当に待機中をすべて取り消す (')}${queuedCount})` : `${t('待機中をすべて取り消す (')}${queuedCount})`,
+                      hint: t('実行中のジョブはそのまま。取り消したジョブは「再実行」で戻せます'),
                       disabled: queuedCount === 0,
                       onSelect: () => {
                           if (!confirmCancelAll) {
@@ -93,17 +94,17 @@ export function JobsPanel() {
                           setConfirmCancelAll(false);
                           void act(async () => {
                               const r = await api.cancelQueued();
-                              toast('success', `${r.count} 件を取り消しました`);
+                              toast('success', `${r.count} ${t('件を取り消しました')}`);
                           });
                       } },
-                    { label: `失敗・キャンセルしたジョブを削除 (${failedCount})`, disabled: failedCount === 0, onSelect: () => void act(async () => {
+                    { label: `${t('失敗・キャンセルしたジョブを削除 (')}${failedCount})`, disabled: failedCount === 0, onSelect: () => void act(async () => {
                         const r = await api.cleanupStorage({ intermediate: false, aligned_older_than_days: null, delete_failed_jobs: true });
-                        toast('success', `${r.jobs_deleted} 件を削除しました`);
+                        toast('success', `${r.jobs_deleted} ${t('件を削除しました')}`);
                     }) },
                 ]} />
             </div>
             <div className="seg-wrap">
-                <div className="seg" role="radiogroup" aria-label="種類で絞り込み">
+                <div className="seg" role="radiogroup" aria-label={t('種類で絞り込み')}>
                     {FILTERS.map(f => (
                         <button type="button" key={f.id} role="radio" aria-checked={filter === f.id} className={filter === f.id ? 'active' : ''} onClick={() => setFilter(f.id)}>
                             {f.label}{f.id === 'active' && activeCount > 0 ? ` ${activeCount}` : ''}
@@ -116,44 +117,44 @@ export function JobsPanel() {
                 <div className="bulk-bar small">
                     {activeCount > 0 && (
                         <Button size="sm" variant={armed === 'stop' ? 'danger' : 'ghost'}
-                            title="実行中のジョブも含めて、いま動いているものと待っているものを全部止めます。結果は消えません"
+                            title={t('実行中のジョブも含めて、いま動いているものと待っているものを全部止めます。結果は消えません')}
                             onClick={() => {
                                 if (armed !== 'stop') return arm('stop');
                                 setArmed(null);
                                 void act(async () => {
                                     const r = await api.cancelQueued(undefined, true);
-                                    toast('success', `${r.count} 件を中断しました`);
+                                    toast('success', `${r.count} ${t('件を中断しました')}`);
                                 });
                             }}>
-                            {armed === 'stop' ? `本当にすべて中断 (${activeCount})` : `すべて中断 (${activeCount})`}
+                            {armed === 'stop' ? `${t('本当にすべて中断 (')}${activeCount})` : `${t('すべて中断 (')}${activeCount})`}
                         </Button>
                     )}
                     {stoppedCount > 0 && (
                         <Button size="sm" variant={armed === 'clear' ? 'danger' : 'ghost'}
-                            title="中断・キャンセルしたジョブの行と作業フォルダを削除します。成功したジョブには触れません"
+                            title={t('中断・キャンセルしたジョブの行と作業フォルダを削除します。成功したジョブには触れません')}
                             onClick={() => {
                                 if (armed !== 'clear') return arm('clear');
                                 setArmed(null);
                                 void act(async () => {
                                     const r = await api.cleanupStorage({ intermediate: false, aligned_older_than_days: null, delete_failed_jobs: true });
-                                    toast('success', `${r.jobs_deleted} 件を削除しました`);
+                                    toast('success', `${r.jobs_deleted} ${t('件を削除しました')}`);
                                 });
                             }}>
-                            {armed === 'clear' ? `本当に削除 (${failedCount})` : `中断・失敗を削除 (${failedCount})`}
+                            {armed === 'clear' ? `${t('本当に削除 (')}${failedCount})` : `${t('中断・失敗を削除 (')}${failedCount})`}
                         </Button>
                     )}
                 </div>
             )}
             {compareFrom && (
                 <div className="compare-bar small">
-                    比較元: <strong>{byId.get(compareFrom)?.title}</strong> — 重ねたい結果の「重ねる」を押してください
-                    <button type="button" className="link" onClick={() => setCompareFrom(null)}>やめる</button>
+                    {t('比較元:')} <strong>{byId.get(compareFrom)?.title}</strong> {t('— 重ねたい結果の「重ねる」を押してください')}
+                    <button type="button" className="link" onClick={() => setCompareFrom(null)}>{t('やめる')}</button>
                 </div>
             )}
             <div className="panel-scroll">
                 {!jobsLoaded && <Empty><Spinner /></Empty>}
                 {jobsLoaded && shown.length === 0 && (
-                    <Empty>{jobs.length === 0 ? <>ジョブはまだありません。<br />作業台で「構造を予測する」を押すとここに並びます。</> : '条件に合うジョブがありません'}</Empty>
+                    <Empty>{jobs.length === 0 ? <>{t('ジョブはまだありません。')}<br />{t('作業台で「構造を予測する」を押すとここに並びます。')}</> : t('条件に合うジョブがありません')}</Empty>
                 )}
                 {shown.map(j => (
                     <JobRow key={j.id} job={j} parent={j.parent_id ? byId.get(j.parent_id) : undefined}
@@ -210,12 +211,12 @@ function RunMemory({ mem, overrun }: { mem?: LiveMemory; overrun: number }) {
         <div className="job-meta small mono">
             <span className={swapping ? 'warn' : 'muted'}>
                 {swapping
-                    ? `物理メモリを ${over.toFixed(1)} GB 超過 — スワップ動作中`
-                    : `メモリ ${mem.footprint_gb.toFixed(1)}${total ? ` / ${total.toFixed(0)}` : ''} GB`}
+                    ? `${t('物理メモリを')} ${over.toFixed(1)} ${t('GB 超過 — スワップ動作中')}`
+                    : `${t('メモリ')} ${mem.footprint_gb.toFixed(1)}${total ? ` / ${total.toFixed(0)}` : ''} GB`}
             </span>
-            {swapping && <span className="muted" title="スワップ中はページアウトが続きます。実測で約 190 MB/s、1 日あたり約 16 TB">SSD 書き込み 約 190 MB/s</span>}
+            {swapping && <span className="muted" title={t('スワップ中はページアウトが続きます。実測で約 190 MB/s、1 日あたり約 16 TB')}>{t('SSD 書き込み 約 190 MB/s')}</span>}
             {swapping && mem.free_disk_gb !== null && (
-                <span className={mem.free_disk_gb < 20 ? 'bad-text' : 'muted'}>空き {mem.free_disk_gb} GB</span>
+                <span className={mem.free_disk_gb < 20 ? 'bad-text' : 'muted'}>{t('空き')} {mem.free_disk_gb} GB</span>
             )}
             {typeof mem.user_share === 'number' && (mem.cpu_sec ?? 0) >= 5 && (
                 // Boltz reports no progress from inside the diffusion phase, and CPU time is
@@ -224,14 +225,14 @@ function RunMemory({ mem, overrun }: { mem?: LiveMemory; overrun: number }) {
                 // does say is what it is busy with: computing, or moving pages. Healthy runs
                 // measured 64-86 % user time; one that paged from end to end, 1.6 %.
                 <span className={mem.user_share < 0.25 ? 'warn' : 'muted'}
-                    title={`CPU 時間のうち計算に使われた割合。ページング待ちになると落ちます${
-                        typeof mem.efficiency === 'number' ? `\nCPU 時間 ÷ 実時間 は ${(mem.efficiency * 100).toFixed(0)}%（大きいジョブほど GPU 待ちで下がるので、これ自体は不調の指標になりません）` : ''}`}>
-                    {mem.user_share < 0.25 ? 'ページング待ち' : '計算中'} {(mem.user_share * 100).toFixed(0)}%
+                    title={`${t('CPU 時間のうち計算に使われた割合。ページング待ちになると落ちます')}${
+                        typeof mem.efficiency === 'number' ? `${t('\nCPU 時間 ÷ 実時間 は')} ${(mem.efficiency * 100).toFixed(0)}${t('%（大きいジョブほど GPU 待ちで下がるので、これ自体は不調の指標になりません）')}` : ''}`}>
+                    {mem.user_share < 0.25 ? t('ページング待ち') : t('計算中')} {(mem.user_share * 100).toFixed(0)}%
                 </span>
             )}
             {overrun >= 2 && (
-                <span className="muted" title="Boltz の内部進捗は最後まで 1/1 のままです">
-                    進捗表示なし
+                <span className="muted" title={t('Boltz の内部進捗は最後まで 1/1 のままです')}>
+                    {t('進捗表示なし')}
                 </span>
             )}
         </div>
@@ -259,38 +260,38 @@ function JobRow(props: {
             <div className="job-line">
                 <StatusDot status={j.status} />
                 {props.renaming ? (
-                    <input autoFocus defaultValue={j.title} className="grow" aria-label="ジョブ名" onClick={e => e.stopPropagation()}
+                    <input autoFocus defaultValue={j.title} className="grow" aria-label={t('ジョブ名')} onClick={e => e.stopPropagation()}
                         onBlur={e => props.onRename(e.target.value.trim())}
                         onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') props.onRename(''); }} />
                 ) : (
-                    <span className="job-title grow" onDoubleClick={props.onStartRename} title={`${j.title}\nダブルクリックで名前を変更`}>{j.title}</span>
+                    <span className="job-title grow" onDoubleClick={props.onStartRename} title={`${j.title}${t('\nダブルクリックで名前を変更')}`}>{j.title}</span>
                 )}
                 <button type="button" className={`icon-btn star ${j.starred ? 'on' : ''}`} onClick={e => { e.stopPropagation(); props.onStar(); }}
-                    aria-label={j.starred ? 'お気に入りを外す' : 'お気に入り'} aria-pressed={j.starred}><Icon name="star" size={13} /></button>
+                    aria-label={j.starred ? t('お気に入りを外す') : t('お気に入り')} aria-pressed={j.starred}><Icon name="star" size={13} /></button>
             </div>
             <div className="job-meta small">
                 <span className={`kind kind-${j.kind}`}>{KIND_LABEL[j.kind]}</span>
                 {j.origin === 'qwen' && <span className="qwen-badge">LLM</span>}
-                {isAuto(j) && <span className="auto-badge" title="自律ループが投入したジョブ">自律{
+                {isAuto(j) && <span className="auto-badge" title={t('自律ループが投入したジョブ')}>{t('自律')}{
                     j.spec.autopilot_experiment ? ` · ${String(j.spec.autopilot_experiment)}` : ''}</span>}
                 <span className="muted">{timeLabel(j.created_at)}</span>
-                {parent && <span className="muted ellipsis" title={`元: ${parent.title}`}>↳ {parent.title}</span>}
+                {parent && <span className="muted ellipsis" title={`${t('元:')} ${parent.title}`}>↳ {parent.title}</span>}
             </div>
             {active && (
                 <>
                     <div className="job-meta small">
-                        {j.status === 'queued' ? <>待機中{j.queue_position ? ` (${j.queue_position} 番目)` : ''}</> : <><Spinner size={10} /> {j.live.label ?? j.phase}</>}
+                        {j.status === 'queued' ? <>{t('待機中')}{j.queue_position ? ` (${j.queue_position} ${t('番目)')}` : ''}</> : <><Spinner size={10} /> {j.live.label ?? j.phase}</>}
                         {j.status === 'running' && elapsed > 0 && <span className="muted">· {formatDuration(elapsed)}</span>}
                         {j.status === 'running' && estimateSec !== null && estimateSec > 0 && (
                             <span className={overrun >= 2 ? 'warn' : 'muted'}
-                                title="開始時点の見積もりです。過去の同じくらいの大きさのジョブから当てはめています">
-                                / 目安 {formatDuration(estimateSec)}{overrun >= 1.5 ? `（${overrun.toFixed(1)} 倍）` : ''}
+                                title={t('開始時点の見積もりです。過去の同じくらいの大きさのジョブから当てはめています')}>
+                                {t('/ 目安')} {formatDuration(estimateSec)}{overrun >= 1.5 ? `${t('（')}${overrun.toFixed(1)} ${t('倍）')}` : ''}
                             </span>
                         )}
                     </div>
                     {j.status === 'running' && (
                         <div className={`progress ${progress === null ? 'indeterminate' : ''}`}
-                            title={progress === null ? 'Boltz は拡散中の進捗を出しません（内部の表示は最後まで 1/1 のまま）。残り時間は測れないので、経過時間とメモリの動きで判断してください' : undefined}>
+                            title={progress === null ? t('Boltz は拡散中の進捗を出しません（内部の表示は最後まで 1/1 のまま）。残り時間は測れないので、経過時間とメモリの動きで判断してください') : undefined}>
                             <i style={progress !== null ? { width: `${Math.round(progress * 100)}%` } : undefined} />
                         </div>
                     )}
@@ -300,15 +301,15 @@ function JobRow(props: {
             {j.kind === 'predict' && mutations.length > 0 && (
                 <div className="job-meta small res-chips">
                     {mutations.slice(0, 6).map(m => <span key={m} className="chip chip-mut">{m}</span>)}
-                    {mutations.length > 6 && <span className="muted">他 {mutations.length - 6}</span>}
+                    {mutations.length > 6 && <span className="muted">{t('他')} {mutations.length - 6}</span>}
                 </div>
             )}
             {j.status === 'failed' && <div className="job-meta small warn ellipsis" title={j.error ?? ''}>{(j.error ?? '').split('\n')[0]}</div>}
             {j.status === 'succeeded' && j.kind === 'predict' && conf && (
                 <div className="job-meta small mono">
-                    信頼度 {fmt(conf.confidence_score)} · pTM {fmt(conf.ptm)}
+                    {t('信頼度')} {fmt(conf.confidence_score)} · pTM {fmt(conf.ptm)}
                     {typeof conf.iptm === 'number' && conf.iptm > 0 && ` · ipTM ${fmt(conf.iptm)}`}
-                    {j.result?.affinity && ` · 結合 ${(j.result.affinity.affinity_probability_binary * 100).toFixed(0)}%`}
+                    {j.result?.affinity && ` ${t('· 結合')} ${(j.result.affinity.affinity_probability_binary * 100).toFixed(0)}%`}
                 </div>
             )}
             {j.status === 'succeeded' && j.kind !== 'predict' && j.result?.pseudo_perplexity !== undefined && (
@@ -317,31 +318,31 @@ function JobRow(props: {
             <div className="job-actions" onClick={e => e.stopPropagation()}>
                 {j.kind === 'predict' && j.status === 'succeeded' && (
                     <Button size="sm" variant="ghost" onClick={props.onCompare}
-                        title={props.compareFrom ? 'この結果を比較元に重ねて表示' : '重ね合わせ比較の基準にする'}>
-                        {props.compareFrom === j.id ? '比較元' : props.compareFrom ? '重ねる' : '比較'}
+                        title={props.compareFrom ? t('この結果を比較元に重ねて表示') : t('重ね合わせ比較の基準にする')}>
+                        {props.compareFrom === j.id ? t('比較元') : props.compareFrom ? t('重ねる') : t('比較')}
                     </Button>
                 )}
                 {j.status === 'succeeded' && (
-                    <Menu label={<Icon name="download" size={13} />} title="書き出し" items={[
-                        { label: 'zip を保存…', onSelect: () => props.onExport('download'), hint: '構造・スコア・入力・ログをまとめて保存' },
-                        { label: 'ダウンロードフォルダに書き出して Finder で表示', onSelect: () => props.onExport('folder') },
+                    <Menu label={<Icon name="download" size={13} />} title={t('書き出し')} items={[
+                        { label: t('zip を保存…'), onSelect: () => props.onExport('download'), hint: t('構造・スコア・入力・ログをまとめて保存') },
+                        { label: t('ダウンロードフォルダに書き出して Finder で表示'), onSelect: () => props.onExport('folder') },
                     ]} />
                 )}
-                {(j.status === 'failed' || j.status === 'cancelled') && <Button size="sm" variant="ghost" onClick={props.onRetry} title="同じ入力でもう一度実行"><Icon name="retry" size={13} /> 再実行</Button>}
+                {(j.status === 'failed' || j.status === 'cancelled') && <Button size="sm" variant="ghost" onClick={props.onRetry} title={t('同じ入力でもう一度実行')}><Icon name="retry" size={13} /> {t('再実行')}</Button>}
                 {j.status === 'queued' && (
-                    <span className="queue-move" role="group" aria-label="順番を入れ替える">
-                        <button type="button" className="icon-btn" title="先頭へ" aria-label="先頭へ"
+                    <span className="queue-move" role="group" aria-label={t('順番を入れ替える')}>
+                        <button type="button" className="icon-btn" title={t('先頭へ')} aria-label={t('先頭へ')}
                             onClick={() => props.onReorder('top')}><Icon name="to-top" size={13} /></button>
-                        <button type="button" className="icon-btn" title="1 つ前へ" aria-label="1 つ前へ"
+                        <button type="button" className="icon-btn" title={t('1 つ前へ')} aria-label={t('1 つ前へ')}
                             onClick={() => props.onReorder('up')}><Icon name="chevron-up" size={13} /></button>
-                        <button type="button" className="icon-btn" title="1 つ後ろへ" aria-label="1 つ後ろへ"
+                        <button type="button" className="icon-btn" title={t('1 つ後ろへ')} aria-label={t('1 つ後ろへ')}
                             onClick={() => props.onReorder('down')}><Icon name="chevron-down" size={13} /></button>
-                        <button type="button" className="icon-btn" title="最後へ" aria-label="最後へ"
+                        <button type="button" className="icon-btn" title={t('最後へ')} aria-label={t('最後へ')}
                             onClick={() => props.onReorder('bottom')}><Icon name="to-bottom" size={13} /></button>
                     </span>
                 )}
-                {active && <Button size="sm" variant="ghost" onClick={props.onCancel}>キャンセル</Button>}
-                {!active && <Button size="sm" variant={props.confirmDelete ? 'danger' : 'ghost'} onClick={props.onDelete} aria-label="削除">{props.confirmDelete ? '本当に削除' : <Icon name="trash" size={13} />}</Button>}
+                {active && <Button size="sm" variant="ghost" onClick={props.onCancel}>{t('キャンセル')}</Button>}
+                {!active && <Button size="sm" variant={props.confirmDelete ? 'danger' : 'ghost'} onClick={props.onDelete} aria-label={t('削除')}>{props.confirmDelete ? t('本当に削除') : <Icon name="trash" size={13} />}</Button>}
             </div>
         </div>
     );
@@ -364,16 +365,16 @@ function QueueEtaLine({ active }: { active: number }) {
         : null;
     const sameDay = finish ? finish.toDateString() === new Date().toDateString() : true;
     const mins = Math.round(eta.seconds / 60);
-    const left = eta.seconds < 60 ? `${Math.round(eta.seconds)} 秒`
-        : mins < 60 ? `${mins} 分`
-            : `${Math.floor(mins / 60)} 時間${mins % 60 ? ` ${mins % 60} 分` : ''}`;
+    const left = eta.seconds < 60 ? `${Math.round(eta.seconds)} ${t('秒')}`
+        : mins < 60 ? `${mins} ${t('分')}`
+            : `${Math.floor(mins / 60)} ${t('時間')}${mins % 60 ? ` ${mins % 60} ${t('分')}` : ''}`;
     return (
         <div className="queue-eta small" role="status">
             <Icon name="rotate" size={12} />
-            <span>残り <strong>{left}</strong>{eta.unknown ? '以上' : ''}</span>
-            {hm && <span className="muted">終了見込み {sameDay ? '' : `${finish!.getMonth() + 1}/${finish!.getDate()} `}{hm}</span>}
-            <span className="muted">{eta.jobs} 件</span>
-            {eta.unknown > 0 && <span className="warn">{eta.unknown} 件は見積もれません</span>}
+            <span>{t('残り')} <strong>{left}</strong>{eta.unknown ? t('以上') : ''}</span>
+            {hm && <span className="muted">{t('終了見込み')} {sameDay ? '' : `${finish!.getMonth() + 1}/${finish!.getDate()} `}{hm}</span>}
+            <span className="muted">{eta.jobs} {t('件')}</span>
+            {eta.unknown > 0 && <span className="warn">{eta.unknown} {t('件は見積もれません')}</span>}
         </div>
     );
 }

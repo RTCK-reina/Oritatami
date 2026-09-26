@@ -178,21 +178,35 @@ def normalize_spec(spec: dict[str, Any]) -> dict[str, Any]:
         if not any(c["type"] == "protein" for c in comps):
             raise ValueError("親和性予測にはタンパク質が必要です")
 
+    def _token(value: Any, what: str) -> list[Any]:
+        try:
+            return [str(value[0]), int(value[1])]
+        except (TypeError, IndexError, KeyError, ValueError):
+            raise ValueError(f"{what} は [チェーン ID, 残基番号] の形で指定してください") from None
+
+    def _dist(value: Any) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            raise ValueError("拘束の max_distance は数値で指定してください") from None
+
     constraints = []
     for con in spec.get("constraints") or []:
+        if not isinstance(con, dict):
+            raise ValueError("拘束はオブジェクトで指定してください")
         if con.get("type") == "pocket":
             if con.get("binder") not in used | {cid for c in comps for cid in c["chains"]}:
                 raise ValueError("ポケット拘束の binder が構成要素のチェーンにありません")
-            contacts = [[str(c[0]), int(c[1])] for c in con.get("contacts") or []]
+            contacts = [_token(c, "ポケット拘束の接触残基") for c in con.get("contacts") or []]
             if not contacts:
                 raise ValueError("ポケット拘束には接触残基が 1 つ以上必要です")
             constraints.append({"type": "pocket", "binder": con["binder"], "contacts": contacts,
-                                "max_distance": float(con.get("max_distance", 6.0)),
+                                "max_distance": _dist(con.get("max_distance", 6.0)),
                                 "force": bool(con.get("force", False))})
         elif con.get("type") == "contact":
-            constraints.append({"type": "contact", "token1": [str(con["token1"][0]), int(con["token1"][1])],
-                                "token2": [str(con["token2"][0]), int(con["token2"][1])],
-                                "max_distance": float(con.get("max_distance", 6.0)),
+            constraints.append({"type": "contact", "token1": _token(con.get("token1"), "token1"),
+                                "token2": _token(con.get("token2"), "token2"),
+                                "max_distance": _dist(con.get("max_distance", 6.0)),
                                 "force": bool(con.get("force", False))})
         else:
             raise ValueError(f"未知の拘束: {con.get('type')}")

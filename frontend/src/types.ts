@@ -360,6 +360,7 @@ export interface Settings {
     llm_log_limit: number;
     llm_think: boolean;
     llm_temperature: number;
+    llm_gpu: boolean;
     boltz_bin: string;
     boltz_cache: string;
     accelerator: string;
@@ -408,9 +409,15 @@ export interface LlmStatus {
     model_available: boolean;
     heavy_model?: string;
     heavy_available?: boolean;
+    /** a memory-hungry prediction is running — the LLM drops right after each reply */
+    heavy_active?: boolean;
+    /** false when the configured model's template has no thinking switch */
+    thinking_supported?: boolean;
+    /** the model's trained context window, when the GGUF reports it */
+    context_length?: number | null;
     models: { name: string; size: number; parameters?: string; quantization?: string }[];
     pull?: { active: boolean; model?: string; status?: string; completed?: number; total?: number; error?: string | null };
-    /** where the Ollama binary in use came from, and how fetching one is going */
+    /** where the llama-server binary in use came from, and how fetching one is going */
     binary?: string | null;
     source?: 'bundled' | 'downloaded' | 'system' | 'none';
     download_mb?: number;
@@ -570,4 +577,16 @@ export interface GpuState {
     changed_to_mb?: number;
     restart_required?: boolean;
     persists_across_reboot?: boolean;
+}
+
+/** One protein entity's alignment behind a prediction, from GET /api/jobs/{id}/msa. */
+export interface MsaAlignment {
+    file: string;
+    query: string;
+    query_key: string;
+    depth: number;
+    columns: number;
+    coverage: number[];
+    identity: number[];
+    sample: { key: string; seq: string }[];
 }

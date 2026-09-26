@@ -34,7 +34,7 @@
 （§6.3）。
 
 **1.5 外部ファイルシステムに依存しない。** リリースされる .app は Python ランタイム・依存ライブラリ・
-フロントエンドのビルド成果物・（同梱版は）Ollama バイナリを全て内部に持つ。開発リポジトリや外部の
+フロントエンドのビルド成果物・（同梱版は）llama-server バイナリを全て内部に持つ。開発リポジトリや外部の
 仮想環境を参照しない（§13）。
 
 ---
@@ -51,7 +51,7 @@ Oritatami.app
        └─ PDB ウォッチャー                   6 時間ごとに新着構造を検索
             │
             ├─(subprocess)→ supervise → boltz predict     構造予測
-            ├─(subprocess)→ ollama serve                  局所 LLM
+            ├─(subprocess)→ llama-server                  局所 LLM
             └─(subprocess)→ proteinmpnn                    逆折り畳み
 ```
 
@@ -89,7 +89,7 @@ ESM-2 のみアプリと同一プロセス内（torch + transformers）で動く
 | `gpu.py` | Metal のワーキングセット上限の読み書き |
 | `ssd.py` | SSD の摩耗量と、スワップを伴う実行の書き込み見積もり |
 | `system.py` | 機種情報、通知、ディスク使用量、自プロセスのメモリ推移 |
-| `llm.py` | Ollama の解決・起動・自己取得・モデル管理 |
+| `llm.py` | llama-server の解決・起動・自己取得・モデル管理 |
 | `sources.py` | UniProt / PDB / AFDB / PubChem の取得 |
 | `chem.py` | SMILES と CCD の検証、記述子 |
 | `exporter.py` | 結果一式の zip 書き出し |
@@ -489,7 +489,7 @@ pLDDT を最大化する探索は、予測器が自信を持てない部分＝�
 ```
 
 **衝突の定義。** 隣接しない残基に属する重原子の対について、距離が
-`r1 + r2 − 0.4 Å`（水素結合が成立しうる N/O/S 同士はさらに −0.6 Å）を下回るものを 1 件と数える。
+`r1 + r2 − 0.4 Å`（水素結合・ハロゲン結合が成立しうる N/O/S/F 同士はさらに −0.6 Å）を下回るものを 1 件と数える。
 0.4 Å は MolProbity と同じ許容幅。0.6 Å の上乗せが無いと、塩橋が全て衝突として計上される
 （実測: 上乗せ無しではこの機械の 973 モデル中 141 件が該当し、中身はほぼ全てアルギニン–
 アスパラギン酸対の 2.0–2.2 Å だった）。金属配位（2.0–2.2 Å）とジスルフィド（2.05 Å）は結合なので
@@ -590,7 +590,14 @@ Boltz は別プロセスなので終了時に全て返す。連続実行で太�
 
 ---
 
-## 10. 局所 LLM（Ollama）
+## 10. 局所 LLM（llama.cpp）
+
+アプリは推論を `llama-server` のプロセスとして自分で管理する（Ollama のような常駐
+デーモンは持たない）。1 プロセスが 1 モデルを面倒見るので、モデル切替は再起動、メモリ解放は
+プロセス終了。会話は OpenAI 互換の `POST /v1/chat/completions` で、構造化出力は
+`response_format` の JSON スキーマで強制する（組めないテンプレートでは `json_object` に落とす）。
+ランタイムは上流 llama.cpp のピン留め版（b11158）。Ollama 同梱の `llama-server` は gemma3・
+qwen3.5 のチャットテンプレートを組めない旧フォークなので使わない。
 
 ### 10.1 バイナリの解決順
 
@@ -600,15 +607,42 @@ Boltz は別プロセスなので終了時に全て返す。連続実行で太�
 4. マシンにインストールされているもの（PATH）
 
 `GET /api/llm/status` が `source` として `bundled | downloaded | system | none` のいずれかを返す。
-どれも無い場合は `POST /api/llm/install` で公式ビルド
-（`ollama-darwin.tgz`、約 153 MB）をバックグラウンドで取得する。システム全体には何もインストール
-せず、押されない限り何も始まらない。展開には `/usr/bin/tar` を使う（コード署名を保つため）。
+どれも無い場合は `POST /api/llm/install` で上流 llama.cpp のリリースアーカイブ
+（`llama-b11158-bin-macos-arm64.tar.gz`、約 12 MB）をバックグラウンドで取得する。
+システム全体には何もインストールせず、押されない限り何も始まらない。展開には
+`/usr/bin/tar` を使う（コード署名を保つため）。
 
-### 10.2 メモリの譲り渡し
+### 10.2 モデルの取得とメモリの譲り渡し
 
-予測ジョブが走っている間は `heavy` フラグが立ち、全ての LLM リクエストが `keep_alive=0` で発行
-される。回答し終えた時点でモデルがユニファイドメモリから降りるので、15 分の既定 keep_alive で
-居座ることがない。`unload_model()` は `/api/ps` が静かになるまで最大 15 秒待つ。
+モデルは平文の GGUF ファイルで、解決順は 明示パス → `<データディレクトリ>/models` →
+`~/.ollama` の既存ストア（manifest→blob 参照。Ollama で pull 済みのモデルはそのまま使える）。
+ダウンロードは `name:tag` の表記を保ったまま、よく使うモデルは Hugging Face の無認可 GGUF
+（`_KNOWN_MODELS` 表）から直接取り、それ以外は `registry.ollama.ai` の manifest→blob に
+フォールバックする。落とした GGUF はロード前にヘッダ検査し、Ollama フォーク専用の変換
+（gemma3 の layer_norm イプシロン欠落、qwen35 の rope セクション数不一致）は「非互換」と
+判定して再取得を促す — 上流 `llama-server` はそれらをロードできない。
+
+予測ジョブが走っている間は `heavy` フラグが立ち、全ての LLM リクエストが回答し終えた時点で
+サーバーを止める（従来の `keep_alive=0` と同じ契約）。通常利用では 15 分のアイドル経過で
+モデルを降ろす。`unload_model()` はサーバーが静かになるまで最大 15 秒待つ。
+
+### 10.3 モデル能力への適応
+
+GGUF ヘッダを直接読んで `capabilities`（`tokenizer.chat_template` 中の思考スイッチの有無）と
+学習コンテキスト長（`*.context_length`）を得る — サーバー未起動でも判定できる:
+
+- `thinking` に非対応のモデル（Gemma 系など）では `llm_think` が有効でも `enable_thinking` を
+  送らない。設定画面にも非対応の警告が出る
+- 起動するコンテキスト窓 (`--ctx-size`) は、既定 32,768 とプロンプト見積もりの大きい方を
+  モデルの学習窓で頭打ちにする。学習窓を超えた KV キャッシュはメモリを食うだけで品質は上がらない
+- 別タグのモデルを読み込む際は同居中のモデルを全て解放する（`make_room_for` = プロセス再起動）。
+  同ファミリでも別サイズは別モデルであり、9B を残したまま 27B を載せると実測で CPU/GPU に
+  分割配置され応答不能になった
+- 出力が JSON として読めないときは一度だけ、壊れた出力を見せてスキーマに従う JSON だけを
+  出力し直させる。直らなければ従来通りエラーになる
+- `raise_exception` を内蔵するテンプレート（Gemma の発言順チェックなど）では llama-server が
+  JSON スキーマの文法を組めず 400 を返す。その応答を検知したら `json_object` モードに
+  切り替えてやり直す — 妥当な JSON であること自体は強制できる
 
 ---
 
@@ -646,6 +680,8 @@ Boltz は別プロセスなので終了時に全て返す。連続実行で太�
 | `POST` | `/api/jobs/queue/cancel_all` | `{kind?, include_running=false}` | `{cancelled, count}` |
 | `GET` | `/api/jobs/{id}/log` | — | 実行ログ（text/plain） |
 | `GET` | `/api/jobs/{id}/files/{rel}` | — | ジョブディレクトリ内のファイル |
+| `GET` | `/api/jobs/{id}/msa` | — | `{alignments: [{file, query, query_key, depth, columns, coverage[], identity[], sample[]}]}` |
+| `GET` | `/api/jobs/{id}/methods.txt` | `lang=ja\|en` | 再現性メソッド記述（text/plain） |
 | `GET` | `/api/jobs/{id}/structure.pdb` | `model?` | PDB 形式に変換して返す |
 | `GET` | `/api/jobs/{id}/export.zip` | — | 結果一式 |
 | `POST` | `/api/jobs/{id}/export` | — | ダウンロードフォルダに書き出す |
@@ -750,9 +786,10 @@ Boltz は別プロセスなので終了時に全て返す。連続実行で太�
 
 | キー | 既定 | 意味 |
 | --- | --- | --- |
-| `llm_model` | `qwen3.5:9b` | 常用モデル |
+| `llm_model` | `gemma3:4b` | 常用モデル |
 | `llm_model_heavy` | `""` | 「じっくり答える」用。空なら機能を出さない。自律ループでは使わない |
 | `llm_log_limit` | 5000 | LLM 呼び出しログの保持件数。0 で無効 |
+| `llm_gpu` | true | llama.cpp の `--n-gpu-layers -1`（Metal に全層）。false で CPU 推論。`ORITATAMI_LLAMA_NGPU_LAYERS` が優先 |
 | `esm_model` | `facebook/esm2_t33_650M_UR50D` | 変異スコアリングのモデル |
 | `mps_strict` | false | true で CPU フォールバック時にジョブを失敗させる |
 | `mps_memory_ratio` | 0.0 | MPS アロケータの上限倍率。0 で無制限 |
@@ -762,6 +799,11 @@ Boltz は別プロセスなので終了時に全て返す。連続実行で太�
 | `autopilot_improvement_delta` | 2.0 | 改善とみなす差（pLDDT 換算） |
 | `autopilot_min_esm_llr` | −15.0 | ESM-2 スコアの下限。選抜ではなく極端な裾の切り落とし |
 | `applecare` | false | SSD 摩耗警告の文面だけを変える。動作には影響しない |
+
+UI の表示言語（日本語/English）は settings.json ではなくブラウザの
+`localStorage['oritatami.lang']` に保持し、設定 → アプリ → 言語 で切り替える
+（切替時にアプリを開き直す）。翻訳は `frontend/src/locales/en.ts` の辞書で、
+未定義キーは日本語のまま表示される。
 
 ---
 
@@ -776,14 +818,15 @@ oritatami.sqlite3      ジョブ・ライブラリ・スレッド・LLM ログ�
 settings.json          設定
 instance.json / .lock  単一インスタンス制御
 oritatami.log          アプリのログ
-ollama-serve.log       同梱 Ollama のログ
+llama-server.log       起動した llama-server のログ
 jobs/<job_id>/         入力 YAML、MSA、Boltz の出力、実行ログ、メモリ計測
 imports/               取り込んだ構造と重ね合わせ結果
 msa-cache/             再利用可能な MSA
-ollama/                自己取得した Ollama（同梱版・システム版がない場合）
+ollama/                自己取得したランタイム（llama-server。同梱版・システム版がない場合）
 ```
 
-Boltz の重みは `~/.boltz`（`boltz_cache`）。約 2 GB。書き出し先の既定は
+Boltz の重みは `~/.boltz`（`boltz_cache`）。構造の重みが約 2 GB、親和性の重みと化学
+辞書を含めた全体で約 6 GB。書き出し先の既定は
 `~/Downloads/Oritatami`（`ORITATAMI_EXPORT_DIR`）。
 
 ### 13.2 .app の構成

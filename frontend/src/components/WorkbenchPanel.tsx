@@ -7,14 +7,17 @@ import { uiEvents, type AddTab } from '../uiEvents';
 import { viewerBus } from '../viewer/bus';
 import { assignChains, buildSpec, formatDuration, mutationsOf } from '../workbench';
 import { AddDialog } from './AddDialog';
+import { BatchDialog } from './BatchDialog';
 import { ComponentEditor } from './ComponentEditor';
 import { Welcome } from './Welcome';
 import { Button, Field, Icon, InfoTip, Kbd, Spinner } from './ui';
+import { t } from '../i18n';
 
 export function WorkbenchPanel() {
     const store = useStore();
     const { workbench, setWorkbench, jobs, jobCache, selectedJobId, runPrediction, toast, health } = store;
     const [dialog, setDialog] = useState<AddTab | null>(null);
+    const [batchOpen, setBatchOpen] = useState(false);
     const [showParams, setShowParams] = useState(false);
     const [confirmClear, setConfirmClear] = useState(false);
     const [submitting, setSubmitting] = useState(false);
@@ -32,6 +35,7 @@ export function WorkbenchPanel() {
     };
 
     const running = jobs.filter(j => j.kind === 'predict' && (j.status === 'running' || j.status === 'queued')).length;
+    const hasProtein = workbench.components.some(c => c.type === 'protein' && c.sequence);
     const parent = workbench.parentJobId ? jobs.find(j => j.id === workbench.parentJobId) : undefined;
     const totalMutations = workbench.components.reduce((n, c) => n + mutationsOf(c).codes.length, 0);
     const p = workbench.params;
@@ -48,27 +52,27 @@ export function WorkbenchPanel() {
     return (
         <div className="panel workbench">
             <div className="panel-head">
-                <input className="wb-name" aria-label="作業台の名前" value={workbench.name} onChange={e => setWorkbench(wb => ({ ...wb, name: e.target.value }))} />
-                <Button size="sm" variant="ghost" title="作業台をライブラリに保存 (あとで「＋ 追加 → ライブラリ」から開けます)" disabled={!workbench.components.length} onClick={() => {
+                <input className="wb-name" aria-label={t('作業台の名前')} value={workbench.name} onChange={e => setWorkbench(wb => ({ ...wb, name: e.target.value }))} />
+                <Button size="sm" variant="ghost" title={t('作業台をライブラリに保存 (あとで「＋ 追加 → ライブラリ」から開けます)')} disabled={!workbench.components.length} onClick={() => {
                     void api.addLibrary('workbench', workbench.name, { name: workbench.name, components: workbench.components })
-                        .then(() => toast('success', '作業台をライブラリに保存しました'))
+                        .then(() => toast('success', t('作業台をライブラリに保存しました')))
                         .catch(e => toast('error', errorMessage(e)));
-                }}>保存</Button>
-                <Button size="sm" variant="ghost" title="保存した作業台・分子をライブラリから開く"
-                    onClick={() => setDialog('library')}>開く</Button>
+                }}>{t('保存')}</Button>
+                <Button size="sm" variant="ghost" title={t('保存した作業台・分子をライブラリから開く')}
+                    onClick={() => setDialog('library')}>{t('開く')}</Button>
                 <Button size="sm" variant={confirmClear ? 'danger' : 'ghost'} onBlur={() => setConfirmClear(false)} disabled={!workbench.components.length} onClick={() => {
                     if (!confirmClear) {
                         setConfirmClear(true);
                         return;
                     }
-                    setWorkbench(() => ({ name: '新しい作業台', components: [], affinityBinderUid: null, params: workbench.params, parentJobId: null }));
+                    setWorkbench(() => ({ name: t('新しい作業台'), components: [], affinityBinderUid: null, params: workbench.params, parentJobId: null }));
                     setConfirmClear(false);
-                }}>{confirmClear ? '本当に空にする' : '新規'}</Button>
+                }}>{confirmClear ? t('本当に空にする') : t('新規')}</Button>
             </div>
             {parent && (
                 <div className="parent-line small">
-                    元の結果: <button type="button" className="link" onClick={() => store.openJob(parent.id)}>{parent.title}</button>
-                    {totalMutations > 0 && <span className="chip chip-mut">変異 {totalMutations}</span>}
+                    {t('元の結果:')} <button type="button" className="link" onClick={() => store.openJob(parent.id)}>{parent.title}</button>
+                    {totalMutations > 0 && <span className="chip chip-mut">{t('変異')} {totalMutations}</span>}
                 </div>
             )}
             <div className="panel-scroll">
@@ -79,41 +83,41 @@ export function WorkbenchPanel() {
                                 onHoverResidue={(chain, pos) => viewerBus.highlight(chain, pos ? [pos] : [])} />
                         ))}
                         <div className="add-row">
-                            <Button size="sm" onClick={() => setDialog('uniprot')}>＋ タンパク質</Button>
-                            <Button size="sm" onClick={() => setDialog('ligand')}>＋ リガンド・薬</Button>
-                            <Button size="sm" onClick={() => setDialog('paste')}>＋ 配列を貼る</Button>
-                            <Button size="sm" onClick={() => setDialog('pdb')}>＋ PDB から</Button>
-                            <Button size="sm" variant="ghost" onClick={() => setDialog('library')} title="保存した作業台・分子を開く">ライブラリ</Button>
+                            <Button size="sm" onClick={() => setDialog('uniprot')}>{t('＋ タンパク質')}</Button>
+                            <Button size="sm" onClick={() => setDialog('ligand')}>{t('＋ リガンド・薬')}</Button>
+                            <Button size="sm" onClick={() => setDialog('paste')}>{t('＋ 配列を貼る')}</Button>
+                            <Button size="sm" onClick={() => setDialog('pdb')}>{t('＋ PDB から')}</Button>
+                            <Button size="sm" variant="ghost" onClick={() => setDialog('library')} title={t('保存した作業台・分子を開く')}>{t('ライブラリ')}</Button>
                         </div>
                     </>
                 )}
             </div>
             {workbench.components.length > 0 && (
                 <div className="run-box">
-                    <button type="button" className="link small" aria-expanded={showParams} onClick={() => setShowParams(s => !s)}>{showParams ? '▾' : '▸'} 予測の設定</button>
+                    <button type="button" className="link small" aria-expanded={showParams} onClick={() => setShowParams(s => !s)}>{showParams ? '▾' : '▸'} {t('予測の設定')}</button>
                     {showParams && (
                         <div className="params">
-                            <Field label="サンプル数" hint="多いほど別の形の候補が出る (時間は増える)">
+                            <Field label={t('サンプル数')} hint={t('多いほど別の形の候補が出る (時間は増える)')}>
                                 <input type="number" min={1} max={10} value={p.diffusion_samples} onChange={e => setParam('diffusion_samples', clampInt(e.target.value, 1, 10))} />
                             </Field>
-                            <Field label="リサイクル" hint="構造を練り直す回数">
+                            <Field label={t('リサイクル')} hint={t('構造を練り直す回数')}>
                                 <input type="number" min={1} max={10} value={p.recycling_steps} onChange={e => setParam('recycling_steps', clampInt(e.target.value, 1, 10))} />
                             </Field>
-                            <Field label="拡散ステップ" hint="少ないほど速いが粗い">
+                            <Field label={t('拡散ステップ')} hint={t('少ないほど速いが粗い')}>
                                 <input type="number" min={10} max={500} step={10} value={p.sampling_steps} onChange={e => setParam('sampling_steps', clampInt(e.target.value, 10, 500))} />
                             </Field>
-                            <Field label="シード" hint="空欄でランダム。同じ値なら同じ結果">
+                            <Field label={t('シード')} hint={t('空欄でランダム。同じ値なら同じ結果')}>
                                 <input type="number" value={p.seed ?? ''} onChange={e => setParam('seed', e.target.value === '' ? null : Math.trunc(Number(e.target.value)))} />
                             </Field>
-                            <Field label="計算デバイス" hint="通常は自動 (GPU)。メモリ不足時は CPU">
+                            <Field label={t('計算デバイス')} hint={t('通常は自動 (GPU)。メモリ不足時は CPU')}>
                                 <select value={p.accelerator ?? 'auto'} onChange={e => setParam('accelerator', e.target.value as 'auto' | 'mps' | 'cpu')}>
-                                    <option value="auto">自動</option>
+                                    <option value="auto">{t('自動')}</option>
                                     <option value="mps">GPU (MPS)</option>
-                                    <option value="cpu">CPU (遅い)</option>
+                                    <option value="cpu">{t('CPU (遅い)')}</option>
                                 </select>
                             </Field>
-                            <label className="inline-toggle" title="推論時ポテンシャルで原子の衝突や結合長の破綻を減らす (少し遅くなる)">
-                                <input type="checkbox" checked={p.use_potentials} onChange={e => setParam('use_potentials', e.target.checked)} /> 物理的な補正
+                            <label className="inline-toggle" title={t('推論時ポテンシャルで原子の衝突や結合長の破綻を減らす (少し遅くなる)')}>
+                                <input type="checkbox" checked={p.use_potentials} onChange={e => setParam('use_potentials', e.target.checked)} /> {t('物理的な補正')}
                             </label>
                         </div>
                     )}
@@ -122,20 +126,26 @@ export function WorkbenchPanel() {
                         <p className="blocked-note" role="status">
                             <Icon name="warning" size={13} />
                             <span>
-                                Boltz-2 がインストールされていないので予測を実行できません。
-                                {' '}<button type="button" className="link" onClick={() => uiEvents.emit('openSettings')}>設定 → 準備状況</button>
-                                {' '}から導入してください。
+                                {t('Boltz-2 がインストールされていないので予測を実行できません。')}
+                                {' '}<button type="button" className="link" onClick={() => uiEvents.emit('openSettings')}>{t('設定 → 準備状況')}</button>
+                                {' '}{t('から導入してください。')}
                             </span>
                         </p>
                     )}
                     <Button variant="primary" className="run-btn" disabled={submitting || !health?.boltz.bin} onClick={() => void submit()}
-                        title={health?.boltz.bin ? '構造予測をキューに追加' : 'Boltz-2 がインストールされていません (設定 → 準備状況)'}>
-                        {submitting ? <Spinner /> : <>構造を予測する <Kbd combo="mod+enter" /></>}
-                        {running > 0 && <span className="small"> (実行中・待機 {running})</span>}
+                        title={health?.boltz.bin ? t('構造予測をキューに追加') : t('Boltz-2 がインストールされていません (設定 → 準備状況)')}>
+                        {submitting ? <Spinner /> : <>{t('構造を予測する')} <Kbd combo="mod+enter" /></>}
+                        {running > 0 && <span className="small"> {t('(実行中・待機')} {running})</span>}
                     </Button>
+                    <div className="row">
+                        <Button size="sm" disabled={!health?.boltz.bin || !hasProtein}
+                            title={hasProtein ? t('変異を一行ずつ書いて、それぞれ別の予測としてまとめて流します') : t('タンパク質を追加すると使えます')}
+                            onClick={() => setBatchOpen(true)}>{t('変異をまとめて予測…')}</Button>
+                    </div>
                 </div>
             )}
             {dialog && <AddDialog initialTab={dialog} onClose={() => setDialog(null)} />}
+            {batchOpen && <BatchDialog onClose={() => setBatchOpen(false)} />}
         </div>
     );
 }
@@ -163,49 +173,49 @@ function EstimateLine() {
         return () => { alive = false; };
     }, [debounced]);
 
-    if (problem) return <div className="estimate estimate-problem small" role="status"><span className="warn">入力を確認してください: {problem}</span></div>;
+    if (problem) return <div className="estimate estimate-problem small" role="status"><span className="warn">{t('入力を確認してください:')} {problem}</span></div>;
     if (!est) return null;
     const range = `${formatDuration(est.low)}〜${formatDuration(est.high)}`;
     return (
         <div className={`estimate small mem-${est.memory.level}`} role="status">
-            <span title={`起動 ${est.breakdown.startup}s · MSA ${est.breakdown.msa}s · 構造 ${est.breakdown.structure}s · 親和性 ${est.breakdown.affinity}s${
-                est.breakdown.paging ? ` · ページング ${est.breakdown.paging}s` : ''}`}>
-                目安 <strong>{formatDuration(est.seconds)}</strong> <span className="muted">({range}{est.basis === 'history' ? `、過去 ${est.samples} 件の実績から` : '、実績が増えると精度が上がります'})</span>
+            <span title={`${t('起動')} ${est.breakdown.startup}s · MSA ${est.breakdown.msa}${t('s · 構造')} ${est.breakdown.structure}${t('s · 親和性')} ${est.breakdown.affinity}s${
+                est.breakdown.paging ? `${t(' · ページング')} ${est.breakdown.paging}s` : ''}`}>
+                {t('目安')} <strong>{formatDuration(est.seconds)}</strong> <span className="muted">({range}{est.basis === 'history' ? `${t('、過去')} ${est.samples} ${t('件の実績から')}` : t('、実績が増えると精度が上がります')})</span>
             </span>
             {est.memory.overage_gb > 0 && (
                 // The paging term is usually the larger half of the estimate, and it is the
                 // half nobody expects, so it gets its own line rather than living in a tooltip.
                 <span className="bad-text"
-                    title={`収まる分 ${est.memory.capacity_gb} GB に対して ${est.memory.peak_gb} GB。`
-                        + `\n拡散 ${est.memory.passes} 回ぶん作業セットを往復するとして ${est.memory.traffic_tb} TB、`
-                        + `\nスワップの実測 565 MB/s（常駐なら 97 GB/s）で割った値です。`
-                        + `\n実測 1 件を元にした係数なので、桁は信用できますが端数は信用しないでください。`}>
-                    うち <strong>{formatDuration(est.memory.paging_sec)}</strong> はページング待ちです
-                    （{est.memory.overage_gb} GB が物理メモリに収まりません）
+                    title={`${t('収まる分')} ${est.memory.capacity_gb} ${t('GB に対して')} ${est.memory.peak_gb} ${t('GB。')}`
+                        + `${t('\n拡散')} ${est.memory.passes} ${t('回ぶん作業セットを往復するとして')} ${est.memory.traffic_tb} ${t('TB、')}`
+                        + `${t('\nスワップの実測 565 MB/s（常駐なら 97 GB/s）で割った値です。')}`
+                        + `${t('\n実測 1 件を元にした係数なので、桁は信用できますが端数は信用しないでください。')}`}>
+                    {t('うち')} <strong>{formatDuration(est.memory.paging_sec)}</strong> {t('はページング待ちです')}
+                    {t('（')}{est.memory.overage_gb} {t('GB が物理メモリに収まりません）')}
                 </span>
             )}
-            <span className="muted">{est.tokens} トークン<InfoTip term="tokens" />{est.msa_reuse ? ' · MSA 再利用' : est.needs_msa_search ? ' · MSA 検索あり' : ''}{est.queued_ahead ? ` · 先に ${est.queued_ahead} 件` : ''}</span>
+            <span className="muted">{est.tokens} {t('トークン')}<InfoTip term="tokens" />{est.msa_reuse ? t(' · MSA 再利用') : est.needs_msa_search ? t(' · MSA 検索あり') : ''}{est.queued_ahead ? ` ${t('· 先に')} ${est.queued_ahead} ${t('件')}` : ''}</span>
             {est.memory.level !== 'ok' && (
                 <span
                     className={est.memory.level === 'danger' ? 'bad-text' : 'warn'}
                     title={est.memory.basis === 'history'
-                        ? `実測 ${est.memory.samples} 件から当てはめた見込みです`
-                        : '実測がまだ足りないため既定のモデルによる見込みです。予測を走らせるほど正確になります'}
+                        ? `${t('実測')} ${est.memory.samples} ${t('件から当てはめた見込みです')}`
+                        : t('実測がまだ足りないため既定のモデルによる見込みです。予測を走らせるほど正確になります')}
                 >
-                    メモリ目安 {est.memory.peak_gb} GB / {est.memory.total_gb} GB
-                    {est.memory.basis === 'history' ? `（実測 ${est.memory.samples} 件）` : '（実測前の概算）'}
+                    {t('メモリ目安')} {est.memory.peak_gb} GB / {est.memory.total_gb} GB
+                    {est.memory.basis === 'history' ? `${t('（実測')} ${est.memory.samples} ${t('件）')}` : t('（実測前の概算）')}
                     {' — '}
                     {est.memory.level === 'danger'
                         ? <>
                             {est.memory.beyond_physical && !est.memory.applecare && (
-                                <strong className="bad-text">保証なしで回すな — </strong>
+                                <strong className="bad-text">{t('保証なしで回すな —')} </strong>
                             )}
                             {est.memory.beyond_physical
-                                ? '搭載メモリを超えるので走行中ずっとスワップし、SSD を消耗させます（止まりはしません。時間は上の目安に織り込み済みです）。'
-                                : '物理メモリを超えるとスワップに落ちます（止まりはしません。時間は上の目安に織り込み済みです）。'}
-                            構成要素・コピー数を減らすか、長い配列をドメインに切り出してください
+                                ? t('搭載メモリを超えるので走行中ずっとスワップし、SSD を消耗させます（止まりはしません。時間は上の目安に織り込み済みです）。')
+                                : t('物理メモリを超えるとスワップに落ちます（止まりはしません。時間は上の目安に織り込み済みです）。')}
+                            {t('構成要素・コピー数を減らすか、長い配列をドメインに切り出してください')}
                         </>
-                        : '余裕が少なめです。他のアプリを閉じると安定します'}
+                        : t('余裕が少なめです。他のアプリを閉じると安定します')}
                 </span>
             )}
         </div>

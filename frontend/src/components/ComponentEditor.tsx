@@ -5,6 +5,7 @@ import type { ChemInfo, ScanResult, WBComponent } from '../types';
 import { AA_INFO, AMINO_ACIDS, applyMutationCodes, cleanSequence, llrColor, mutationsOf } from '../workbench';
 import { SequenceStrip, type StripColor } from './SequenceStrip';
 import { Button, Icon, InfoTip, Spinner, TYPE_LABEL } from './ui';
+import { t } from '../i18n';
 
 const chemCache = new Map<string, Promise<ChemInfo>>();
 function describe(smiles: string): Promise<ChemInfo> {
@@ -94,57 +95,57 @@ export function ComponentEditor({ comp, chains, plddt, onHoverResidue }: {
     return (
         <div className={`comp comp-${comp.type}`}>
             <div className="comp-head">
-                <button type="button" className="icon-btn" onClick={() => setCollapsed(c => !c)} aria-label={collapsed ? '展開' : '折りたたむ'} aria-expanded={!collapsed}>{collapsed ? '▸' : '▾'}</button>
+                <button type="button" className="icon-btn" onClick={() => setCollapsed(c => !c)} aria-label={collapsed ? t('展開') : t('折りたたむ')} aria-expanded={!collapsed}>{collapsed ? '▸' : '▾'}</button>
                 <span className={`type-badge type-${comp.type}`}>{TYPE_LABEL[comp.type]}</span>
                 <input className="comp-label" value={comp.label} onChange={e => updateComponent(comp.uid, { label: e.target.value })} />
-                {comp.origin === 'qwen' && <span className="qwen-badge" title="LLM の提案から追加・変更">LLM</span>}
-                <span className="chain-ids" title="チェーン ID">{chains.join(' ')}</span>
+                {comp.origin === 'qwen' && <span className="qwen-badge" title={t('LLM の提案から追加・変更')}>LLM</span>}
+                <span className="chain-ids" title={t('チェーン ID')}>{chains.join(' ')}</span>
                 <span className="copies">
                     <button className="icon-btn" disabled={comp.copies <= 1} onClick={() => updateComponent(comp.uid, { copies: comp.copies - 1 })}>−</button>
-                    <span title="コピー数 (ホモ多量体)">×{comp.copies}</span>
+                    <span title={t('コピー数 (ホモ多量体)')}>×{comp.copies}</span>
                     <button className="icon-btn" disabled={comp.copies >= 12} onClick={() => updateComponent(comp.uid, { copies: comp.copies + 1 })}>+</button>
                 </span>
-                <button type="button" className="icon-btn danger" onClick={() => removeComponent(comp.uid)} aria-label="削除" title="作業台から外す"><Icon name="trash" size={14} /></button>
+                <button type="button" className="icon-btn danger" onClick={() => removeComponent(comp.uid)} aria-label={t('削除')} title={t('作業台から外す')}><Icon name="trash" size={14} /></button>
             </div>
             {!collapsed && isPolymer && comp.sequence && (
                 <div className="comp-body">
                     <div className="comp-meta">
-                        <span>{comp.sequence.length} 残基</span>
+                        <span>{comp.sequence.length} {t('残基')}</span>
                         {comp.source && <span className="src">{comp.source.db} {comp.source.id}</span>}
                         {comp.type === 'protein' && (
-                            <label className="inline-toggle" title="MSA: 進化情報を ColabFold サーバーから取得 (精度↑)。単一配列: 新規設計配列向け・速い">
+                            <label className="inline-toggle" title={t('MSA: 進化情報を ColabFold サーバーから取得 (精度↑)。単一配列: 新規設計配列向け・速い')}>
                                 <select value={comp.msa ?? 'server'} onChange={e => updateComponent(comp.uid, { msa: e.target.value as 'server' | 'single' })}>
-                                    <option value="server">MSA あり</option>
-                                    <option value="single">単一配列</option>
+                                    <option value="server">{t('MSA あり')}</option>
+                                    <option value="single">{t('単一配列')}</option>
                                 </select>
                                 <InfoTip term="msa" />
                             </label>
                         )}
                         <label className="inline-toggle"
-                            title="N 末端と C 末端をつないだ環状ポリマーとして予測します。直鎖の分子にこれを入れると、存在しない結合を作った構造を返します">
-                            <input type="checkbox" checked={!!comp.cyclic} onChange={e => updateComponent(comp.uid, { cyclic: e.target.checked })} /> 環状
+                            title={t('N 末端と C 末端をつないだ環状ポリマーとして予測します。直鎖の分子にこれを入れると、存在しない結合を作った構造を返します')}>
+                            <input type="checkbox" checked={!!comp.cyclic} onChange={e => updateComponent(comp.uid, { cyclic: e.target.checked })} /> {t('環状')}
                         </label>
                         <span className="spacer" />
-                        <select className="mini-select" value={color} onChange={e => setColor(e.target.value as StripColor)} title="配列の色">
-                            <option value="group">性質で色分け</option>
+                        <select className="mini-select" value={color} onChange={e => setColor(e.target.value as StripColor)} title={t('配列の色')}>
+                            <option value="group">{t('性質で色分け')}</option>
                             <option value="plddt" disabled={!plddt}>pLDDT</option>
-                            <option value="tolerance" disabled={!scan}>ESM 許容度</option>
-                            <option value="none">色なし</option>
+                            <option value="tolerance" disabled={!scan}>{t('ESM 許容度')}</option>
+                            <option value="none">{t('色なし')}</option>
                         </select>
                     </div>
                     {comp.cyclic && (
                         <p className="opt-warning" role="status">
-                            環状としてこの鎖の両末端をつなぎます。環状ペプチドや環状化した設計配列でないかぎり外してください
-                            — 直鎖の分子に付けると、実在しない末端間の結合を前提にした構造が返り、pLDDT もその前提のまま高く出ます。
+                            {t('環状としてこの鎖の両末端をつなぎます。環状ペプチドや環状化した設計配列でないかぎり外してください')}
+                            {t('— 直鎖の分子に付けると、実在しない末端間の結合を前提にした構造が返り、pLDDT もその前提のまま高く出ます。')}
                         </p>
                     )}
                     {editing ? (
                         <div className="seq-edit">
                             <textarea value={draft} onChange={e => setDraft(e.target.value)} rows={5} spellCheck={false} />
                             <div className="row">
-                                <Button size="sm" variant="primary" onClick={saveDraft}>保存</Button>
-                                <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>やめる</Button>
-                                <span className="hint">長さを変えると、変異の基準配列もこの配列に置き換わります</span>
+                                <Button size="sm" variant="primary" onClick={saveDraft}>{t('保存')}</Button>
+                                <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>{t('やめる')}</Button>
+                                <span className="hint">{t('長さを変えると、変異の基準配列もこの配列に置き換わります')}</span>
                             </div>
                         </div>
                     ) : (
@@ -166,11 +167,11 @@ export function ComponentEditor({ comp, chains, plddt, onHoverResidue }: {
                     )}
                     {comp.type === 'protein' && (
                         <div className="mut-bar">
-                            {muts.lengthChanged && <span className="warn">長さが基準配列と違います</span>}
+                            {muts.lengthChanged && <span className="warn">{t('長さが基準配列と違います')}</span>}
                             {muts.codes.map(code => (
                                 <span key={code} className="chip chip-mut">
                                     {code}
-                                    <button onClick={() => revertPosition(Number(code.slice(1, -1)))} aria-label={`${code} を戻す`}>×</button>
+                                    <button onClick={() => revertPosition(Number(code.slice(1, -1)))} aria-label={`${code} ${t('を戻す')}`}>×</button>
                                 </span>
                             ))}
                             <form className="mut-form" onSubmit={e => {
@@ -179,37 +180,37 @@ export function ComponentEditor({ comp, chains, plddt, onHoverResidue }: {
                                 if (codes.length) applyMutations(codes);
                                 setMutInput('');
                             }}>
-                                <input value={mutInput} onChange={e => setMutInput(e.target.value)} placeholder="変異を入力 (例 K48R L73P)" />
+                                <input value={mutInput} onChange={e => setMutInput(e.target.value)} placeholder={t('変異を入力 (例 K48R L73P)')} />
                             </form>
                         </div>
                     )}
                     <div className="row wrap">
-                        <Button size="sm" variant="ghost" onClick={() => { setDraft(comp.sequence ?? ''); setEditing(true); }}>配列を編集</Button>
+                        <Button size="sm" variant="ghost" onClick={() => { setDraft(comp.sequence ?? ''); setEditing(true); }}>{t('配列を編集')}</Button>
                         {comp.type === 'protein' && muts.codes.length > 0 && (
                             <>
-                                <Button size="sm" variant="ghost" onClick={() => updateComponent(comp.uid, { sequence: comp.baseSequence })}>変異をすべて戻す</Button>
-                                <Button size="sm" variant="ghost" onClick={() => updateComponent(comp.uid, { baseSequence: comp.sequence })}>この配列を基準にする</Button>
+                                <Button size="sm" variant="ghost" onClick={() => updateComponent(comp.uid, { sequence: comp.baseSequence })}>{t('変異をすべて戻す')}</Button>
+                                <Button size="sm" variant="ghost" onClick={() => updateComponent(comp.uid, { baseSequence: comp.sequence })}>{t('この配列を基準にする')}</Button>
                             </>
                         )}
                         {comp.type === 'protein' && (
                             <Button size="sm" onClick={() => void scanComponent(comp.uid)} disabled={scanJob?.status === 'running' || scanJob?.status === 'queued'}
-                                title="ESM-2 で全ての 1 残基置換を採点し、変異の手がかりにします">
-                                {scanJob?.status === 'running' || scanJob?.status === 'queued' ? <><Spinner size={10} /> スキャン中</> : scan ? '変異スキャン結果' : '変異スキャン (ESM-2)'}
+                                title={t('ESM-2 で全ての 1 残基置換を採点し、変異の手がかりにします')}>
+                                {scanJob?.status === 'running' || scanJob?.status === 'queued' ? <><Spinner size={10} /> {t('スキャン中')}</> : scan ? t('変異スキャン結果') : t('変異スキャン (ESM-2)')}
                             </Button>
                         )}
                         {comp.type === 'protein' && (
-                            <Button size="sm" variant="ghost" title="ESM-2 で不自然な残基を置き換え、より天然らしい配列に近づけるジョブを追加します"
+                            <Button size="sm" variant="ghost" title={t('ESM-2 で不自然な残基を置き換え、より天然らしい配列に近づけるジョブを追加します')}
                                 onClick={() => void api.submitRefine({ sequence: comp.sequence ?? '', label: comp.label })
-                                    .then(() => { toast('info', 'ESM で磨くジョブを追加しました', { label: 'ジョブを見る', run: () => store.showLeftTab('jobs') }); void store.refreshJobs(); })
-                                    .catch(e => toast('error', errorMessage(e)))}>ESM で磨く</Button>
+                                    .then(() => { toast('info', t('ESM で磨くジョブを追加しました'), { label: t('ジョブを見る'), run: () => store.showLeftTab('jobs') }); void store.refreshJobs(); })
+                                    .catch(e => toast('error', errorMessage(e)))}>{t('ESM で磨く')}</Button>
                         )}
                         <Button size="sm" variant="ghost" onClick={() => {
                             const data: Record<string, unknown> = { ...comp };
                             delete data.uid;
                             void api.addLibrary(comp.type, comp.label || comp.type, data)
-                                .then(() => toast('success', 'ライブラリに保存しました'))
+                                .then(() => toast('success', t('ライブラリに保存しました')))
                                 .catch(e => toast('error', errorMessage(e)));
-                        }}>ライブラリへ保存</Button>
+                        }}>{t('ライブラリへ保存')}</Button>
                     </div>
                 </div>
             )}
@@ -222,18 +223,18 @@ export function ComponentEditor({ comp, chains, plddt, onHoverResidue }: {
                         <div className="mono small">{comp.smiles ? comp.smiles : `CCD: ${comp.ccd}`}</div>
                         {chem && (
                             <div className="kv">
-                                <span>{chem.formula}</span><span>MW {chem.molecular_weight}</span><span>重原子 {chem.heavy_atoms}</span>
+                                <span>{chem.formula}</span><span>MW {chem.molecular_weight}</span><span>{t('重原子')} {chem.heavy_atoms}</span>
                                 <span>logP {chem.logp}</span>
                             </div>
                         )}
-                        <label className="inline-toggle" title="Boltz-2 の親和性ヘッドでこのリガンドの結合強さを予測します (1 分子のみ)">
+                        <label className="inline-toggle" title={t('Boltz-2 の親和性ヘッドでこのリガンドの結合強さを予測します (1 分子のみ)')}>
                             <input type="radio" name="affinity-binder" checked={isBinder}
                                 disabled={comp.copies > 1}
                                 onChange={() => setWorkbench(wb => ({ ...wb, affinityBinderUid: comp.uid }))} />
-                            結合親和性を予測する
-                            {isBinder && <button className="link" onClick={() => setWorkbench(wb => ({ ...wb, affinityBinderUid: null }))}>解除</button>}
+                            {t('結合親和性を予測する')}
+                            {isBinder && <button className="link" onClick={() => setWorkbench(wb => ({ ...wb, affinityBinderUid: null }))}>{t('解除')}</button>}
                         </label>
-                        {chem && !chem.affinity_ok && isBinder && <div className="warn small">重原子 56 超または複数分子のため、親和性の信頼性が下がります</div>}
+                        {chem && !chem.affinity_ok && isBinder && <div className="warn small">{t('重原子 56 超または複数分子のため、親和性の信頼性が下がります')}</div>}
                     </div>
                 </div>
             )}
@@ -249,8 +250,8 @@ function MutationPicker({ wt, base, position, scan, onPick, onClose }: {
         <div className="mut-picker">
             <div className="mut-picker-head">
                 <strong>{wt}{position}</strong> {AA_INFO[wt]?.name}
-                {base && base !== wt && <span className="small muted">(基準 {base})</span>}
-                {row ? <span className="small muted">数字は ESM-2 LLR (スキャンした配列の {scan?.sequence[position - 1]}{position} に対する値。+ ほど自然)</span> : <span className="small muted">変異スキャンを実行するとスコアが出ます</span>}
+                {base && base !== wt && <span className="small muted">{t('(基準')} {base})</span>}
+                {row ? <span className="small muted">{t('数字は ESM-2 LLR (スキャンした配列の')} {scan?.sequence[position - 1]}{position} {t('に対する値。+ ほど自然)')}</span> : <span className="small muted">{t('変異スキャンを実行するとスコアが出ます')}</span>}
                 <span className="spacer" />
                 <button className="icon-btn" onClick={onClose}>×</button>
             </div>

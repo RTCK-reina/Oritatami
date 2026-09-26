@@ -110,27 +110,24 @@ else
   warn "Boltz-2 の重み: 初回の予測時にダウンロードします"
 fi
 
-if ! have ollama; then
-  if have brew && ask "AI アシスタント (Qwen) 用に Ollama を Homebrew で入れますか？"; then
-    brew install ollama
+if ! have llama-server; then
+  if have brew && ask "AI アシスタント (LLM) 用に llama.cpp を Homebrew で入れますか？"; then
+    brew install llama.cpp
   else
-    warn "Ollama がありません。AI アシスタントを使うときは https://ollama.com から入れてください (予測・変異スコアは使えます)"
+    warn "llama-server がありません。アプリの設定画面からも取得できます (予測・変異スコアは使えます)"
   fi
 fi
-if have ollama; then
-  if ! curl -s -m 2 http://127.0.0.1:11434/api/version >/dev/null; then
-    (ollama serve >/dev/null 2>&1 &)
-    for _ in $(seq 1 30); do curl -s -m 1 http://127.0.0.1:11434/api/version >/dev/null && break; sleep 0.5; done
-  fi
-  model="$(.venv/bin/python -c 'from oritatami.config import get_settings; print(get_settings().llm_model)' 2>/dev/null || echo qwen3.5:9b)"
-  if ollama list 2>/dev/null | awk 'NR>1 {print $1}' | grep -qx "$model"; then
-    ok "Qwen モデル $model: ダウンロード済み"
-  elif ask "Qwen モデル $model (数 GB) をダウンロードしますか？"; then
-    ollama pull "$model"
-    ok "Qwen モデル $model: ダウンロードしました"
+model="$(.venv/bin/python -c 'from oritatami.config import get_settings; print(get_settings().llm_model)' 2>/dev/null || echo gemma3:4b)"
+if .venv/bin/python -c 'import sys; from oritatami import llm; sys.exit(0 if llm.resolve_model(sys.argv[1]) else 1)' "$model" 2>/dev/null; then
+  ok "LLM モデル $model: ダウンロード済み"
+elif ask "LLM モデル $model (数 GB) をダウンロードしますか？"; then
+  if .venv/bin/python -c 'import sys; from oritatami import llm; sys.exit(0 if llm.ensure_model(sys.argv[1]).get("ok") else 1)' "$model"; then
+    ok "LLM モデル $model: ダウンロードしました"
   else
-    warn "Qwen モデルはアプリの設定画面からもダウンロードできます"
+    warn "LLM モデルのダウンロードに失敗しました — アプリの設定画面からも試せます"
   fi
+else
+  warn "LLM モデルはアプリの設定画面からもダウンロードできます"
 fi
 
 # ---------------------------------------------------------------- 5. app bundle

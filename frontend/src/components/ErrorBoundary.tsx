@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { t } from '../i18n';
 
 interface Props {
     /** shown in the fallback so the user knows which part failed */
@@ -19,20 +20,20 @@ export class ErrorBoundary extends Component<Props, State> {
     }
 
     componentDidCatch(error: Error, info: ErrorInfo): void {
-        console.error(`[Oritatami] ${this.props.area} の表示でエラー`, error, info.componentStack);
+        console.error(`[Oritatami] ${this.props.area} ${t('の表示でエラー')}`, error, info.componentStack);
     }
 
     render(): ReactNode {
         if (!this.state.error) return this.props.children;
         return (
             <div className="panel boundary" role="alert">
-                <strong>{this.props.area}を表示できませんでした</strong>
+                <strong>{this.props.area}{t('を表示できませんでした')}</strong>
                 <pre className="error-box">{this.state.error.message}</pre>
                 <div className="row">
-                    <button type="button" className="btn btn-md btn-primary" onClick={() => this.setState({ error: null })}>もう一度表示する</button>
-                    <button type="button" className="btn btn-md btn-ghost" onClick={() => window.location.reload()}>画面を再読み込み</button>
+                    <button type="button" className="btn btn-md btn-primary" onClick={() => this.setState({ error: null })}>{t('もう一度表示する')}</button>
+                    <button type="button" className="btn btn-md btn-ghost" onClick={() => window.location.reload()}>{t('画面を再読み込み')}</button>
                 </div>
-                <p className="small muted">作業台の内容は保存されています。再読み込みしても消えません。</p>
+                <p className="small muted">{t('作業台の内容は保存されています。再読み込みしても消えません。')}</p>
             </div>
         );
     }

@@ -5,14 +5,15 @@ import type { ChatMessage, Proposal, Thread } from '../types';
 import { uiEvents } from '../uiEvents';
 import { assignChains, buildSpec } from '../workbench';
 import { Button, Icon, Kbd, Spinner } from './ui';
+import { t } from '../i18n';
 
 type Mode = AssistantRequest['mode'];
 const MODES: { id: Mode; label: string; placeholder: string }[] = [
-    { id: 'mutations', label: '変異を提案', placeholder: '目的 (例: 熱安定性を上げたい / 結合を弱めたら何が起きる? / 面白い形の変化)' },
-    { id: 'complex', label: '複合体を提案', placeholder: '目的 (例: 天然の結合相手と組ませたい / 阻害剤を試したい)' },
-    { id: 'design', label: '新しい配列を設計', placeholder: '作りたいもの (例: 4 本のヘリックスが束になった小さなタンパク質)' },
-    { id: 'explain', label: '結果を解説', placeholder: '特に知りたいこと (空欄でも可)' },
-    { id: 'chat', label: '会話', placeholder: '質問や相談 (例: ipTM ってなに? この変異の意味は?)' },
+    { id: 'mutations', label: t('変異を提案'), placeholder: t('目的 (例: 熱安定性を上げたい / 結合を弱めたら何が起きる? / 面白い形の変化)') },
+    { id: 'complex', label: t('複合体を提案'), placeholder: t('目的 (例: 天然の結合相手と組ませたい / 阻害剤を試したい)') },
+    { id: 'design', label: t('新しい配列を設計'), placeholder: t('作りたいもの (例: 4 本のヘリックスが束になった小さなタンパク質)') },
+    { id: 'explain', label: t('結果を解説'), placeholder: t('特に知りたいこと (空欄でも可)') },
+    { id: 'chat', label: t('会話'), placeholder: t('質問や相談 (例: ipTM ってなに? この変異の意味は?)') },
 ];
 
 /** Conversations are listed newest-first; the stamp is what separates two runs of the same task. */
@@ -24,10 +25,10 @@ function threadStamp(at: number): string {
 }
 
 const STARTERS: { mode: Mode; text: string }[] = [
-    { mode: 'chat', text: 'pLDDT と PAE の違いをやさしく教えて' },
-    { mode: 'mutations', text: '熱に強くなりそうな変異' },
-    { mode: 'complex', text: '天然の結合相手と組ませたい' },
-    { mode: 'design', text: '小さな β シートのタンパク質' },
+    { mode: 'chat', text: t('pLDDT と PAE の違いをやさしく教えて') },
+    { mode: 'mutations', text: t('熱に強くなりそうな変異') },
+    { mode: 'complex', text: t('天然の結合相手と組ませたい') },
+    { mode: 'design', text: t('小さな β シートのタンパク質') },
 ];
 
 export function AssistantPanel({ onCollapse }: { onCollapse?: () => void }) {
@@ -44,6 +45,7 @@ export function AssistantPanel({ onCollapse }: { onCollapse?: () => void }) {
     const [thread, setThread] = useState<Thread | null>(null);
     const [threads, setThreads] = useState<Omit<Thread, 'messages'>[]>([]);
     const [busy, setBusy] = useState<{ since: number } | null>(null);
+    const abortRef = useRef<AbortController | null>(null);
     const [, tick] = useState(0);
     const listRef = useRef<HTMLDivElement>(null);
     const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -91,7 +93,7 @@ export function AssistantPanel({ onCollapse }: { onCollapse?: () => void }) {
         return () => window.clearInterval(t);
     }, [busy]);
 
-    // fetching Ollama takes a couple of minutes; the banner follows it
+    // fetching the runtime takes a couple of minutes; the banner follows it
     const installing = !!llm?.install?.active;
     useEffect(() => {
         if (!installing) return;
@@ -102,6 +104,7 @@ export function AssistantPanel({ onCollapse }: { onCollapse?: () => void }) {
     const send = async (m: Mode, message: string, jobId: string | null, heavy = false) => {
         if (busy) return;
         setBusy({ since: Date.now() });
+        abortRef.current = new AbortController();
         const optimistic: ChatMessage = { role: 'user', content: m === 'chat' ? message : `[${MODES.find(x => x.id === m)?.label}] ${message}`, mode: m, created_at: Date.now() / 1000 };
         setThread(t => (t ? { ...t, messages: [...t.messages, optimistic] } : { id: '', title: '', created_at: 0, updated_at: 0, messages: [optimistic] }));
         try {
@@ -109,23 +112,36 @@ export function AssistantPanel({ onCollapse }: { onCollapse?: () => void }) {
                 thread_id: threadId, mode: m, message, workbench: buildSpec(workbench),
                 job_id: jobId, scan_job_id: scan?.status === 'succeeded' ? scan.id : null, focus_chain: chain || null, count,
                 heavy,
-            });
+            }, abortRef.current.signal);
             setThreadId(res.thread_id);
             setThread(await api.thread(res.thread_id));
             setText('');
         } catch (e) {
+            const aborted = e instanceof DOMException && e.name === 'AbortError';
             const isGuard = e instanceof ApiError && e.code === 'safeguard';
-            toast(
-                'error',
-                isGuard
-                    ? '⚠️ モデルの安全フィルタが応答を拒否しました。質問の言い回しを変えてみてください'
-                    : `LLM: ${errorMessage(e)}`,
-            );
+            if (aborted) {
+                toast('info', t('生成を止めました'));
+            } else {
+                toast(
+                    'error',
+                    isGuard
+                        ? t('⚠️ モデルの安全フィルタが応答を拒否しました。質問の言い回しを変えてみてください')
+                        : `LLM: ${errorMessage(e)}`,
+                );
+            }
             setThread(t => (t ? { ...t, messages: t.messages.filter(x => x !== optimistic) } : t));
             if (!isGuard) void refreshHealth();
         } finally {
+            abortRef.current = null;
             setBusy(null);
         }
+    };
+
+    const stopChat = () => {
+        // Dropping our socket is what makes llama-server abandon the generation;
+        // the abort just frees the UI.
+        abortRef.current?.abort();
+        void api.llmChatCancel().catch(() => { });
     };
 
     // requests from other panels ("LLM に解説させる") fire once per nonce with the latest workbench
@@ -158,18 +174,18 @@ export function AssistantPanel({ onCollapse }: { onCollapse?: () => void }) {
             <div className="panel-head">
                 <span className="qwen-logo">LLM</span>
                 <span className="small muted ellipsis model-name" title={llm?.model}>{llm?.model ?? ''}</span>
-                <select className="mini-select grow" value={threadId ?? ''} onChange={e => setThreadId(e.target.value || null)} title="会話の履歴">
-                    <option value="">新しい会話</option>
+                <select className="mini-select grow" value={threadId ?? ''} onChange={e => setThreadId(e.target.value || null)} title={t('会話の履歴')}>
+                    <option value="">{t('新しい会話')}</option>
                     {threads.map(t => (
                         <option key={t.id} value={t.id}>{t.title} — {threadStamp(t.updated_at)}</option>
                     ))}
                 </select>
-                <Button size="sm" variant="ghost" onClick={() => setThreadId(null)} title="新しい会話を始める">新規</Button>
+                <Button size="sm" variant="ghost" onClick={() => setThreadId(null)} title={t('新しい会話を始める')}>{t('新規')}</Button>
                 {threadId && (
-                    <button type="button" className="icon-btn danger" aria-label="この会話を削除"
-                        title="開いている会話を履歴から削除する"
+                    <button type="button" className="icon-btn danger" aria-label={t('この会話を削除')}
+                        title={t('開いている会話を履歴から削除する')}
                         onClick={() => {
-                            if (!window.confirm('この会話を履歴から削除します。よろしいですか?')) return;
+                            if (!window.confirm(t('この会話を履歴から削除します。よろしいですか?'))) return;
                             void api.deleteThread(threadId)
                                 .then(() => {
                                     setThreadId(null);
@@ -179,31 +195,36 @@ export function AssistantPanel({ onCollapse }: { onCollapse?: () => void }) {
                                 .catch(e => toast('error', errorMessage(e)));
                         }}><Icon name="trash" size={13} /></button>
                 )}
-                {onCollapse && <button type="button" className="icon-btn" onClick={onCollapse} aria-label="LLM パネルを隠す" title="隠す (⌘⇧B)"><Icon name="chevron-right" /></button>}
+                {onCollapse && <button type="button" className="icon-btn" onClick={onCollapse} aria-label={t('LLM パネルを隠す')} title={t('隠す (⌘⇧B)')}><Icon name="chevron-right" /></button>}
             </div>
+            {llm?.heavy_active && (
+                <div className="banner">
+                    {t('構造予測の実行中です — 応答のたびに LLM をメモリから降ろすので、予測が終わるまで応答が遅くなります')}
+                </div>
+            )}
             {llm && (!llm.server || !llm.model_available) && (
                 <div className="banner">
                     {llm.install?.active
-                        ? `Ollama を取得しています… ${llm.install.total ? Math.round(((llm.install.completed ?? 0) / llm.install.total) * 100) : 0}%`
+                        ? `${t('llama-server を取得しています…')} ${llm.install.total ? Math.round(((llm.install.completed ?? 0) / llm.install.total) * 100) : 0}%`
                         : !llm.server
-                            ? (llm.binary ? 'Ollama が起動していません。' : `この Mac に Ollama がありません (アプリ用に約 ${llm.download_mb ?? 150} MB 取得します)。`)
-                            : `モデル ${llm.model} がまだありません。`}
+                            ? (llm.binary ? t('llama-server が起動していません。') : `${t('この Mac に llama-server がありません (アプリ用に約')} ${llm.download_mb ?? 150} ${t('MB 取得します)。')}`)
+                            : `${t('モデル')} ${llm.model} ${t('がまだありません。')}`}
                     {llm.install?.active ? null : !llm.server
                         ? <Button size="sm" onClick={() => void api.llmStart().then(r => {
-                            if (r.installing) toast('info', 'Ollama の取得を始めました (設定 → 準備状況 で進捗が見られます)');
+                            if (r.installing) toast('info', t('llama-server の取得を始めました (設定 → 準備状況 で進捗が見られます)'));
                             return refreshHealth();
-                        }).catch(e => toast('error', errorMessage(e)))}>{llm.binary ? 'Ollama を起動' : '用意する'}</Button>
-                        : <Button size="sm" onClick={() => void api.llmPull(llm.model).then(() => toast('info', 'ダウンロードを開始しました (設定画面で進捗を確認できます)')).catch(e => toast('error', errorMessage(e)))}>ダウンロード</Button>}
+                        }).catch(e => toast('error', errorMessage(e)))}>{llm.binary ? t('llama-server を起動') : t('用意する')}</Button>
+                        : <Button size="sm" onClick={() => void api.llmPull(llm.model).then(() => toast('info', t('ダウンロードを開始しました (設定画面で進捗を確認できます)'))).catch(e => toast('error', errorMessage(e)))}>{t('ダウンロード')}</Button>}
                 </div>
             )}
             <div className="messages" ref={listRef}>
                 {!thread?.messages.length && (
                     <div className="assistant-intro">
-                        <p>作業台の分子を見て、LLM が試す案を出します。案はそのまま使われず、配列との照合・データベース検索・ESM-2 のスコアで検証されてから表示されます。</p>
+                        <p>{t('作業台の分子を見て、LLM が試す案を出します。案はそのまま使われず、配列との照合・データベース検索・ESM-2 のスコアで検証されてから表示されます。')}</p>
                         <ul className="small muted">
-                            <li>変異: 作業台のタンパク質に対する変異セット (ESM-2 スキャンがあれば根拠に使います)</li>
-                            <li>複合体: 結合相手のタンパク質・リガンド・核酸 (UniProt / PubChem で解決)</li>
-                            <li>設計: 新しい配列 (ESM-2 の自然さを表示。「ESM で磨く」で改良)</li>
+                            <li>{t('変異: 作業台のタンパク質に対する変異セット (ESM-2 スキャンがあれば根拠に使います)')}</li>
+                            <li>{t('複合体: 結合相手のタンパク質・リガンド・核酸 (UniProt / PubChem で解決)')}</li>
+                            <li>{t('設計: 新しい配列 (ESM-2 の自然さを表示。「ESM で磨く」で改良)')}</li>
                         </ul>
                         <div className="starters">
                             {STARTERS.map(st => (
@@ -215,7 +236,7 @@ export function AssistantPanel({ onCollapse }: { onCollapse?: () => void }) {
                     </div>
                 )}
                 {thread?.messages.map((m, i) => <MessageView key={`${m.created_at}-${i}`} m={m} />)}
-                {busy && <div className="msg msg-assistant"><Spinner /> 考えています… {Math.round((Date.now() - busy.since) / 1000)} 秒</div>}
+                {busy && <div className="msg msg-assistant"><Spinner /> {t('考えています…')} {Math.round((Date.now() - busy.since) / 1000)} {t('秒')} <Button size="sm" onClick={stopChat}>{t('止める')}</Button></div>}
             </div>
             <div className="composer">
                 <div className="mode-chips">
@@ -226,22 +247,22 @@ export function AssistantPanel({ onCollapse }: { onCollapse?: () => void }) {
                 </div>
                 <div className="composer-opts small">
                     {(mode === 'mutations') && proteinChains.length > 0 && (
-                        <label>対象 <select value={chain} onChange={e => setFocusChain(e.target.value)}>
-                            {proteinChains.map(c => <option key={c} value={c}>チェーン {c}</option>)}
+                        <label>{t('対象')} <select value={chain} onChange={e => setFocusChain(e.target.value)}>
+                            {proteinChains.map(c => <option key={c} value={c}>{t('チェーン')} {c}</option>)}
                         </select></label>
                     )}
                     {mode !== 'chat' && mode !== 'explain' && (
-                        <label>案の数 <input type="number" min={1} max={8} value={count} onChange={e => setCount(Number(e.target.value))} /></label>
+                        <label>{t('案の数')} <input type="number" min={1} max={8} value={count} onChange={e => setCount(Number(e.target.value))} /></label>
                     )}
-                    {selectedJob && <span className="muted" title="直近に選んだ予測結果を文脈に含めます">結果: {selectedJob.title}</span>}
-                    {mode === 'mutations' && scan?.status === 'succeeded' && <span className="muted">ESM スキャン使用</span>}
+                    {selectedJob && <span className="muted" title={t('直近に選んだ予測結果を文脈に含めます')}>{t('結果:')} {selectedJob.title}</span>}
+                    {mode === 'mutations' && scan?.status === 'succeeded' && <span className="muted">{t('ESM スキャン使用')}</span>}
                 </div>
                 {(needsWorkbench || needsResult) && (
-                    <div className="warn small">{needsWorkbench ? '作業台にタンパク質を追加してください' : 'ジョブ一覧から予測結果を選んでください'}</div>
+                    <div className="warn small">{needsWorkbench ? t('作業台にタンパク質を追加してください') : t('ジョブ一覧から予測結果を選んでください')}</div>
                 )}
                 <div className="composer-input">
                     <textarea ref={composerRef} rows={2} value={text} placeholder={current.placeholder} onChange={e => setText(e.target.value)}
-                        aria-label="LLM への入力"
+                        aria-label={t('LLM への入力')}
                         onKeyDown={e => {
                             if (e.nativeEvent.isComposing) return;
                             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -251,15 +272,15 @@ export function AssistantPanel({ onCollapse }: { onCollapse?: () => void }) {
                         }} />
                     <Button variant="qwen" disabled={!!busy || needsWorkbench || needsResult || (mode === 'chat' && !text.trim())}
                         onClick={() => void send(mode, text, selectedJob?.id ?? null)} title="⌘+Enter">
-                        {busy ? <Spinner /> : <>送る <Kbd combo="mod+enter" /></>}
+                        {busy ? <Spinner /> : <>{t('送る')} <Kbd combo="mod+enter" /></>}
                     </Button>
                     {llm?.heavy_model && (
                         <Button disabled={!!busy || !llm.heavy_available || needsWorkbench || needsResult || (mode === 'chat' && !text.trim())}
                             onClick={() => void send(mode, text, selectedJob?.id ?? null, true)}
                             title={llm.heavy_available
-                                ? `${llm.heavy_model} で答えさせます (遅い代わりに本文が詳しくなることがあります。⇧⌘+Enter)`
-                                : `${llm.heavy_model} がまだダウンロードされていません`}>
-                            じっくり <Kbd combo="mod+shift+enter" />
+                                ? `${llm.heavy_model} ${t('で答えさせます (遅い代わりに本文が詳しくなることがあります。⇧⌘+Enter)')}`
+                                : `${llm.heavy_model} ${t('がまだダウンロードされていません')}`}>
+                            {t('じっくり')} <Kbd combo="mod+shift+enter" />
                         </Button>
                     )}
                 </div>
@@ -287,32 +308,32 @@ function MessageView({ m }: { m: ChatMessage }) {
             <div className="reply">{renderInline(m.content)}</div>
             {m.reply_issues && m.reply_issues.length > 0 ? (
                 <div className="claim-warnings">
-                    <strong>本文に配列と矛盾する記述があります</strong>
+                    <strong>{t('本文に配列と矛盾する記述があります')}</strong>
                     <ul>{m.reply_issues.map((x, i) => <li key={i}>{x}</li>)}</ul>
                 </div>
             ) : m.content.trim() && (
-                <p className="unverified-note">この文章は LLM が書いたもので検証されていません (照合・ESM-2 スコアリングを受けるのは下の案だけです)</p>
+                <p className="unverified-note">{t('この文章は LLM が書いたもので検証されていません (照合・ESM-2 スコアリングを受けるのは下の案だけです)')}</p>
             )}
             {m.proposals?.map((p, i) => <ProposalCard key={i} p={p} />)}
             {mutationSets.length > 1 && (
                 <div className="row wrap batch-row">
                     <Button size="sm" variant="primary" disabled={queued || !health?.boltz.bin}
-                        title="作業台の配列に各案を 1 つずつ適用した変異体を、まとめて予測キューに入れます"
+                        title={t('作業台の配列に各案を 1 つずつ適用した変異体を、まとめて予測キューに入れます')}
                         onClick={async () => {
                             await runVariants(mutationSets.map(p => ({ chain: p.chain as string, mutations: p.mutations as string[] })), { origin: 'qwen' });
                             setQueued(true);
-                        }}>{queued ? '追加しました' : `${mutationSets.length} 案をまとめて予測`}</Button>
-                    <span className="small muted">結果は「比較」タブで並べて見られます</span>
+                        }}>{queued ? t('追加しました') : `${mutationSets.length} ${t('案をまとめて予測')}`}</Button>
+                    <span className="small muted">{t('結果は「比較」タブで並べて見られます')}</span>
                 </div>
             )}
-            {m.corrected && <div className="small muted">本文が配列と食い違っていたので、指摘して書き直させました</div>}
-            {m.elapsed_sec !== undefined && <div className="small muted">{m.model} · {m.elapsed_sec} 秒</div>}
+            {m.corrected && <div className="small muted">{t('本文が配列と食い違っていたので、指摘して書き直させました')}</div>}
+            {m.elapsed_sec !== undefined && <div className="small muted">{m.model} · {m.elapsed_sec} {t('秒')}</div>}
         </div>
     );
 }
 
 const TYPE_TEXT: Record<string, string> = {
-    mutation_set: '変異', add_ligand: 'リガンド', add_protein: '結合相手', add_nucleic: '核酸', new_protein: '新しい配列',
+    mutation_set: t('変異'), add_ligand: t('リガンド'), add_protein: t('結合相手'), add_nucleic: t('核酸'), new_protein: t('新しい配列'),
 };
 
 function ProposalCard({ p }: { p: Proposal }) {
@@ -325,7 +346,7 @@ function ProposalCard({ p }: { p: Proposal }) {
             <div className="proposal-head">
                 <span className="kind">{TYPE_TEXT[p.type] ?? p.type}</span>
                 <strong className="grow">{p.title}</strong>
-                <span className={`badge badge-${p.status}`}>{p.status === 'ok' ? '検証OK' : p.status === 'warning' ? '注意あり' : '却下'}</span>
+                <span className={`badge badge-${p.status}`}>{p.status === 'ok' ? t('検証OK') : p.status === 'warning' ? t('注意あり') : t('却下')}</span>
             </div>
             {p.rationale && <div className="rationale">{renderInline(p.rationale)}</div>}
             {p.mutations && (
@@ -334,43 +355,43 @@ function ProposalCard({ p }: { p: Proposal }) {
                         const s = p.esm?.per_mutation.find(x => x.mutation === code || x.mutation.endsWith(code));
                         return <span key={code} className="chip chip-mut">{p.chain}:{code}{s && <small className={s.llr >= 0 ? 'pos' : 'neg'}> {s.llr > 0 ? '+' : ''}{s.llr.toFixed(1)}</small>}</span>;
                     })}
-                    {p.esm && <span className="small muted">ESM-2 合計 LLR {p.esm.total_llr > 0 ? '+' : ''}{p.esm.total_llr.toFixed(2)}</span>}
+                    {p.esm && <span className="small muted">{t('ESM-2 合計 LLR')} {p.esm.total_llr > 0 ? '+' : ''}{p.esm.total_llr.toFixed(2)}</span>}
                 </div>
             )}
             {p.chem?.svg && <img className="proposal-svg" alt={p.title} src={`data:image/svg+xml;utf8,${encodeURIComponent(p.chem.svg)}`} />}
-            {p.chem && <div className="small mono">{p.chem.formula} · MW {p.chem.molecular_weight} · 重原子 {p.chem.heavy_atoms}</div>}
+            {p.chem && <div className="small mono">{p.chem.formula} · MW {p.chem.molecular_weight} {t('· 重原子')} {p.chem.heavy_atoms}</div>}
             {p.resolved && <div className="small muted">{Object.entries(p.resolved).filter(([, v]) => v !== null && v !== undefined).map(([k, v]) => `${k}: ${v}`).join(' · ')}</div>}
             {p.stats && (
                 <div className="small mono">
-                    {p.stats.length} 残基 · 疎水性 {Math.round(p.stats.hydrophobic_fraction * 100)}% · 最多 {p.stats.most_common}
+                    {p.stats.length} {t('残基 · 疎水性')} {Math.round(p.stats.hydrophobic_fraction * 100)}{t('% · 最多')} {p.stats.most_common}
                     {p.stats.pseudo_perplexity !== undefined && ` · ESM PPPL ${p.stats.pseudo_perplexity}`}
                 </div>
             )}
             {p.sequence && (
                 <div>
-                    <button className="link small" onClick={() => setShowSeq(s => !s)}>{showSeq ? '配列を隠す' : '配列を見る'}</button>
+                    <button className="link small" onClick={() => setShowSeq(s => !s)}>{showSeq ? t('配列を隠す') : t('配列を見る')}</button>
                     {showSeq && <div className="mono small seq-wrap">{p.sequence}</div>}
                 </div>
             )}
             {p.repaired && p.repaired.length > 0 && (
-                <ul className="issues repaired" title="残基名は合っていて位置だけ違ったので、その残基がある位置に直して通しました">
-                    {p.repaired.map((x, i) => <li key={i}>位置を直しました: {x}</li>)}
+                <ul className="issues repaired" title={t('残基名は合っていて位置だけ違ったので、その残基がある位置に直して通しました')}>
+                    {p.repaired.map((x, i) => <li key={i}>{t('位置を直しました:')} {x}</li>)}
                 </ul>
             )}
             {p.issues.length > 0 && <ul className="issues">{p.issues.map((x, i) => <li key={i}>{x}</li>)}</ul>}
             {ok && (
                 <div className="row wrap">
                     {p.apply?.action !== 'new_protein' && (
-                        <Button size="sm" onClick={async () => { await applyProposal(p, false); setDone('適用済み'); }}>作業台に適用</Button>
+                        <Button size="sm" onClick={async () => { await applyProposal(p, false); setDone(t('適用済み')); }}>{t('作業台に適用')}</Button>
                     )}
-                    <Button size="sm" variant="primary" onClick={async () => { await applyProposal(p, true); setDone('予測を開始'); }}>
-                        {p.apply?.action === 'new_protein' ? '新しい作業台で予測' : '適用して予測'}
+                    <Button size="sm" variant="primary" onClick={async () => { await applyProposal(p, true); setDone(t('予測を開始')); }}>
+                        {p.apply?.action === 'new_protein' ? t('新しい作業台で予測') : t('適用して予測')}
                     </Button>
                     {p.type === 'new_protein' && p.sequence && (
-                        <Button size="sm" variant="ghost" title="ESM-2 で不自然な残基を置き換えて、より自然な配列に近づけます"
+                        <Button size="sm" variant="ghost" title={t('ESM-2 で不自然な残基を置き換えて、より自然な配列に近づけます')}
                             onClick={() => void api.submitRefine({ sequence: p.sequence ?? '', label: p.title, origin: 'qwen' })
-                                .then(() => { toast('info', 'ESM で磨くジョブを追加しました'); setDone('ESM ジョブ追加'); })
-                                .catch(e => toast('error', errorMessage(e)))}>ESM で磨く</Button>
+                                .then(() => { toast('info', t('ESM で磨くジョブを追加しました')); setDone(t('ESM ジョブ追加')); })
+                                .catch(e => toast('error', errorMessage(e)))}>{t('ESM で磨く')}</Button>
                     )}
                     {done && <span className="small muted">{done}</span>}
                 </div>

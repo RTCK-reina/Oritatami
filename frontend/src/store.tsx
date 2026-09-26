@@ -14,6 +14,7 @@ import type {
     Workbench,
 } from './types';
 import { applyMutationCodes, assignChains, buildSpec, emptyWorkbench, newUid, specToWorkbench } from './workbench';
+import { t } from './i18n';
 
 export interface ToastAction {
     label: string;
@@ -35,7 +36,7 @@ function sameInput(a: SpecOut, b: SpecOut): boolean {
         c.chains.length, c.msa ?? '', !!c.cyclic]));
     const params = (s: SpecOut) => {
         const p = s.params ?? {};
-        return JSON.stringify([p.diffusion_samples ?? 1, p.recycling_steps ?? 3, p.sampling_steps ?? 200, !!p.use_potentials,
+        return JSON.stringify([p.diffusion_samples ?? 1, p.recycling_steps ?? 4, p.sampling_steps ?? 200, !!p.use_potentials,
             p.seed ?? null, p.accelerator ?? 'auto']);
     };
     return comps(a) === comps(b) && params(a) === params(b) && (a.affinity_binder ?? null) === (b.affinity_binder ?? null);
@@ -87,7 +88,7 @@ export interface Store {
     runPrediction: (opts?: { title?: string; origin?: string; workbench?: Workbench; force?: boolean }) => Promise<JobSummary | null>;
     runVariants: (variants: { chain: string; mutations: string[] }[], opts?: { origin?: string; workbench?: Workbench }) => Promise<void>;
     retryJob: (id: string, overrides?: { msa?: 'single'; accelerator?: Accelerator; diffusion_samples?: number; new_seed?: boolean }) => Promise<void>;
-    exportJob: (id: string, how: 'download' | 'folder' | 'pdb', model?: number) => Promise<void>;
+    exportJob: (id: string, how: 'download' | 'folder' | 'pdb' | 'methods-ja' | 'methods-en', model?: number) => Promise<void>;
     scanComponent: (uid: string, wb?: Workbench) => Promise<void>;
     scanJobFor: (sequence: string | undefined) => JobSummary | undefined;
     loadJobIntoWorkbench: (jobId: string) => Promise<void>;
@@ -252,10 +253,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 setSelectedJobId(j.id);
                 if (j.kind === 'predict') setView({ kind: 'job', jobId: j.id, model: 0 });
             };
-            if (j.status === 'succeeded') toast('success', `完了: ${j.title}`, { label: '結果を見る', run: show });
-            if (j.status === 'failed') toast('error', `失敗: ${j.title} — ${(j.error ?? '').split('\n')[0]}`, { label: '詳細', run: () => setSelectedJobId(j.id) });
+            if (j.status === 'succeeded') toast('success', `${t('完了:')} ${j.title}`, { label: t('結果を見る'), run: show });
+            if (j.status === 'failed') toast('error', `${t('失敗:')} ${j.title} — ${(j.error ?? '').split('\n')[0]}`, { label: t('詳細'), run: () => setSelectedJobId(j.id) });
             if (j.status !== 'cancelled' && !document.hasFocus()) {
-                void api.notify(j.status === 'succeeded' ? '計算が終わりました' : '計算が失敗しました', j.title).catch(() => undefined);
+                void api.notify(j.status === 'succeeded' ? t('計算が終わりました') : t('計算が失敗しました'), j.title).catch(() => undefined);
             }
             if (watched.current.has(j.id)) {
                 watched.current.delete(j.id);
@@ -313,7 +314,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const runPrediction: Store['runPrediction'] = useCallback(async (opts = {}) => {
         const wb = opts.workbench ?? workbench;
         if (!wb.components.length) {
-            toast('error', '作業台が空です。「＋ タンパク質」などで分子を追加してください');
+            toast('error', t('作業台が空です。「＋ タンパク質」などで分子を追加してください'));
             return null;
         }
         const spec = buildSpec(wb);
@@ -321,8 +322,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             // e.g. ⌘↩ pressed again on an unchanged workbench: ask instead of spending minutes on a duplicate
             const parent = jobCacheRef.current[wb.parentJobId] ?? await api.job(wb.parentJobId).catch(() => null);
             if (parent?.kind === 'predict' && ['queued', 'running', 'succeeded'].includes(parent.status) && sameInput(parent.spec, spec)) {
-                toast('info', `同じ入力の予測がすでにあります (${parent.title})。別のサンプルを得たいときは、そのまま予測できます`,
-                    { label: 'それでも予測する', run: () => void runPredictionRef.current({ ...opts, force: true }) });
+                toast('info', `${t('同じ入力の予測がすでにあります (')}${parent.title}${t(')。別のサンプルを得たいときは、そのまま予測できます')}`,
+                    { label: t('それでも予測する'), run: () => void runPredictionRef.current({ ...opts, force: true }) });
                 return null;
             }
         }
@@ -334,7 +335,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             watched.current.add(job.id);
             prevStatus.current[job.id] = job.status;
             setSelectedJobId(job.id);
-            toast('info', `予測をキューに追加: ${job.title}`);
+            toast('info', `${t('予測をキューに追加:')} ${job.title}`);
             await refreshJobs();
             return job;
         } catch (e) {
@@ -352,7 +353,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         try {
             const res = await api.submitBatch(buildSpec(wb), variants, wb.parentJobId, opts.origin ?? 'user');
             res.jobs.forEach(j => { prevStatus.current[j.id] = j.status; });
-            toast('info', `${res.jobs.length} 個の変異体をキューに追加しました`, { label: 'ジョブを見る', run: () => showLeftTab('jobs') });
+            toast('info', `${res.jobs.length} ${t('個の変異体をキューに追加しました')}`, { label: t('ジョブを見る'), run: () => showLeftTab('jobs') });
             await refreshJobs();
             showLeftTab('jobs');
         } catch (e) {
@@ -366,7 +367,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             watched.current.add(job.id);
             prevStatus.current[job.id] = job.status;
             setSelectedJobId(job.id);
-            toast('info', `再実行をキューに追加: ${job.title}`);
+            toast('info', `${t('再実行をキューに追加:')} ${job.title}`);
             await refreshJobs();
         } catch (e) {
             toast('error', errorMessage(e));
@@ -379,9 +380,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 downloadFile(api.exportZipUrl(id));
             } else if (how === 'pdb') {
                 downloadFile(api.structurePdbUrl(id, model));
+            } else if (how === 'methods-ja' || how === 'methods-en') {
+                downloadFile(api.methodsUrl(id, how === 'methods-ja' ? 'ja' : 'en'));
             } else {
                 const r = await api.exportJobToFolder(id);
-                toast('success', `書き出しました: ${r.path}`);
+                toast('success', `${t('書き出しました:')} ${r.path}`);
             }
         } catch (e) {
             toast('error', errorMessage(e));
@@ -417,10 +420,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const loadJobIntoWorkbench = useCallback(async (jobId: string) => {
         try {
             const job = await getJob(jobId);
-            if (job.kind !== 'predict') throw new Error('予測ジョブではありません');
+            if (job.kind !== 'predict') throw new Error(t('予測ジョブではありません'));
             setWorkbench(() => specToWorkbench(job.spec, job.id, job.title));
             showLeftTab('workbench');
-            toast('info', `作業台に読み込みました: ${job.title}`);
+            toast('info', `${t('作業台に読み込みました:')} ${job.title}`);
         } catch (e) {
             toast('error', errorMessage(e));
         }
@@ -433,7 +436,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             if (p.apply.action === 'mutate') {
                 const chains = assignChains(workbench.components);
                 const target = workbench.components.find(c => (chains.get(c.uid) ?? []).includes(p.apply?.chain ?? ''));
-                if (!target?.sequence) throw new Error(`チェーン ${p.apply.chain} が作業台にありません`);
+                if (!target?.sequence) throw new Error(`${t('チェーン')} ${p.apply.chain} ${t('が作業台にありません')}`);
                 const sequence = applyMutationCodes(target.sequence, p.apply.mutations ?? []);
                 next = {
                     ...workbench,
@@ -466,7 +469,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (run) {
             await runPrediction({ workbench: next, title: next.name, origin: 'qwen' });
         } else {
-            toast('success', `作業台に適用: ${p.title}`);
+            toast('success', `${t('作業台に適用:')} ${p.title}`);
             showLeftTab('workbench');
         }
     }, [workbench, setWorkbench, runPrediction, toast, showLeftTab]);
@@ -481,7 +484,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 moving: { jobId: movingJobId, model: 0, title: b.title },
                 result,
             });
-            toast('info', `重ね合わせ RMSD ${result.rmsd.toFixed(2)} Å (Cα ${result.matched_ca} 個)`);
+            toast('info', `${t('重ね合わせ RMSD')} ${result.rmsd.toFixed(2)} Å (Cα ${result.matched_ca} ${t('個)')}`);
         } catch (e) {
             toast('error', errorMessage(e));
         }
@@ -504,7 +507,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 const item = a.kind === 'afdb' ? await api.importAfdb(a.accession) : await api.importPdb(a.id);
                 addImport(item);
                 setView({ kind: 'import', item });
-                toast('success', `${item.title} を表示しました`);
+                toast('success', `${item.title} ${t('を表示しました')}`);
                 return;
             }
             if (a.kind === 'assistant') {
@@ -518,10 +521,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 await runPrediction({ workbench: wb, title: wb.name });
             } else if (a.then === 'scan') {
                 await scanComponent(wb.components[0].uid, wb);
-                toast('info', 'ESM-2 で変異スキャンを開始しました。結果のヒートマップをクリックすると変異を入れられます');
+                toast('info', t('ESM-2 で変異スキャンを開始しました。結果のヒートマップをクリックすると変異を入れられます'));
             }
         } catch (e) {
-            toast('error', `例を開けませんでした: ${errorMessage(e)}`);
+            toast('error', `${t('例を開けませんでした:')} ${errorMessage(e)}`);
         }
     }, [addImport, requestAssistant, setWorkbench, showLeftTab, runPrediction, scanComponent, toast]);
 

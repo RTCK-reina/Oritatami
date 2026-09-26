@@ -60,6 +60,12 @@ def test_every_path_parameter_endpoint_handles_an_unknown_id(client):
             assert r.status_code < 500, f"{method} {url} → {r.status_code}: {r.text[:200]}"
 
 
+def test_job_file_traversal_is_refused_not_a_crash(client):
+    """.. inside the files path escaped the job directory and answered 500."""
+    r = client.get("/api/jobs/x/files/..%2F..%2Fetc%2Fpasswd")
+    assert r.status_code in (403, 404), r.status_code
+
+
 def test_the_endpoints_that_rank_do_not_silently_truncate(client):
     """count is the whole population; returned is what fits the limit."""
     body = client.get("/api/leaderboard", params={"limit": 1}).json()

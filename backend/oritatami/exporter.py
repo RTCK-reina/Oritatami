@@ -51,6 +51,8 @@ def _readme(job: dict[str, Any], files: list[str]) -> str:
         "structures_pdb/": "同じ構造の PDB 形式 (変換できたもののみ)",
         "boltz/": "Boltz の出力 (confidence / affinity JSON, pLDDT / PAE の npz)",
         "scan_matrix.csv": "ESM-2 の変異スコア行列 (行=位置, 列=置換先アミノ酸, 値=LLR)",
+        "methods_ja.txt": "論文メソッド記述向けテキスト (日本語)",
+        "methods_en.txt": "論文メソッド記述向けテキスト (英語)",
         "logs/": "実行ログ",
     }
     for key, text in notes.items():
@@ -113,10 +115,123 @@ def build_zip(job: dict[str, Any]) -> tuple[bytes, str]:
                 ("start", (result.get("history") or [{}])[0].get("sequence", "")),
                 (f"refined|PPPL={result.get('pseudo_perplexity')}", result.get("sequence", "")),
             ]))
+        add_bytes("methods_ja.txt", methods_text(job, "ja"))
+        add_bytes("methods_en.txt", methods_text(job, "en"))
         for log_name in ("job.log", "boltz.log"):
             add_file(f"logs/{log_name}", job_dir / log_name)
         zf.writestr("README.md", _readme(job, names))
     return buf.getvalue(), f"{safe_name(job['title'])}_{job['id'][-6:]}.zip"
+
+
+def _compositions(spec: dict[str, Any]) -> tuple[str, str]:
+    """Chain counts by type, (English, Japanese) — e.g. '2 protein chains + 1 ligand'."""
+    counts: dict[str, int] = {}
+    for comp in spec.get("components") or []:
+        n = len(comp.get("chains") or []) or 1
+        counts[comp.get("type", "?")] = counts.get(comp.get("type", "?"), 0) + n
+    _EN = {"protein": "protein chain", "dna": "DNA strand", "rna": "RNA strand", "ligand": "ligand"}
+    _JA = {"protein": "タンパク質鎖", "dna": "DNA 鎖", "rna": "RNA 鎖", "ligand": "リガンド"}
+    en = " + ".join(f"{n} {_EN.get(t, t)}{'s' if n > 1 else ''}" for t, n in counts.items()) or "none"
+    ja = "、".join(f"{_JA.get(t, t)} {n} 本" for t, n in counts.items()) or "なし"
+    return en, ja
+
+
+def _msa_desc(spec: dict[str, Any]) -> tuple[str, str]:
+    proteins = [c for c in spec.get("components") or [] if c.get("type") == "protein"]
+    server = sum(1 for c in proteins if c.get("msa") == "server")
+    single = len(proteins) - server
+    if server and not single:
+        return ("with multiple sequence alignments from the ColabFold MMseqs2 server",
+                "MSA は ColabFold MMseqs2 サーバーで生成")
+    if single and not server:
+        return ("as single sequences without an MSA", "MSA は使わず単一配列のみ")
+    return (f"with server MSAs for {server} protein(s) and single-sequence input for {single}",
+            f"{server} 本はサーバー生成の MSA、{single} 本は単一配列")
+
+
+def methods_text(job: dict[str, Any], lang: str = "ja") -> str:
+    """A methods-section-ready text: the engine, parameters and versions behind this
+    job's numbers, so a paper or lab note can state exactly how they were produced."""
+    result = job.get("result") or {}
+    spec = result.get("normalized_spec") or job.get("spec") or {}
+    created = time.strftime("%Y-%m-%d", time.localtime(job["created_at"]))
+    kind = job["kind"]
+    comp_en, comp_ja = _compositions(spec)
+    if kind == "predict":
+        p = spec.get("params") or {}
+        msa_en, msa_ja = _msa_desc(spec)
+        pot_en = " and Boltz-2 potentials" if p.get("use_potentials") else ""
+        pot_ja = "、Boltz-2 ポテンシャルあり" if p.get("use_potentials") else ""
+        seed_en = f", random seed {p['seed']}" if p.get("seed") is not None else ""
+        seed_ja = f"、シード {p['seed']}" if p.get("seed") is not None else ""
+        if lang == "en":
+            return (
+                "Methods\n"
+                "=======\n\n"
+                f"Structure prediction was performed with Boltz-2 (Abramson et al., Nature 2024) "
+                f"via Oritatami {__version__}.\n"
+                f"The input was {comp_en}, modelled {msa_en}.\n"
+                f"Sampling used {p.get('diffusion_samples')} diffusion sample(s), "
+                f"{p.get('recycling_steps')} recycling steps and {p.get('sampling_steps')} sampling steps"
+                f"{pot_en}{seed_en}; the compute device setting was '{p.get('accelerator', 'auto')}'.\n\n"
+                f"Job {job['id']} ran on {created}. All values are computational predictions, "
+                "not measurements.\n")
+        return (
+            "方法\n"
+            "====\n\n"
+            f"構造予測は Boltz-2 (Abramson et al., Nature 2024) を Oritatami {__version__} 経由で実行した。\n"
+            f"入力は {comp_ja}。{msa_ja}。\n"
+            f"サンプリングは拡散サンプル {p.get('diffusion_samples')} 個、リサイクル {p.get('recycling_steps')} 回、"
+            f"サンプリングステップ {p.get('sampling_steps')}{pot_ja}{seed_ja}。"
+            f"計算デバイス設定は '{p.get('accelerator', 'auto')}'。\n\n"
+            f"ジョブ {job['id']}、{created} に実行。値はすべて計算による予測で、実験値ではない。\n")
+    if kind == "scan":
+        model = result.get("model") or "ESM-2"
+        seq = result.get("sequence") or ""
+        if lang == "en":
+            return (
+                "Methods\n"
+                "=======\n\n"
+                f"Every possible single substitution of the {len(seq)}-residue sequence was scored "
+                f"with the protein language model {model} via Oritatami {__version__}, reported as "
+                "per-mutation log-likelihood ratios against the wild type.\n"
+                f"Pseudo-perplexity of the wild-type sequence was {result.get('pseudo_perplexity')}.\n\n"
+                f"Job {job['id']} ran on {created}. All values are computational predictions, "
+                "not measurements.\n")
+        return (
+            "方法\n"
+            "====\n\n"
+            f"{len(seq)} 残基の配列に対し、可能なすべての一点置換をタンパク質言語モデル {model} で "
+            f"Oritatami {__version__} 経由スコアリングし、野生型に対する対数尤度比 (LLR) として報告した。\n"
+            f"野生型配列の疑似パープレキシティは {result.get('pseudo_perplexity')}。\n\n"
+            f"ジョブ {job['id']}、{created} に実行。値はすべて計算による予測で、実験値ではない。\n")
+    if kind == "refine":
+        s = job.get("spec") or {}
+        seed_en = f", seed {s['seed']}" if s.get("seed") is not None else ""
+        seed_ja = f"、シード {s['seed']}" if s.get("seed") is not None else ""
+        if lang == "en":
+            return (
+                "Methods\n"
+                "=======\n\n"
+                f"The sequence was refined by masked resampling with {result.get('model') or 'ESM-2'} "
+                f"via Oritatami {__version__}: {s.get('rounds')} rounds masking {s.get('fraction')} of the "
+                f"least-likely positions, sampled at temperature {s.get('temperature')}{seed_en}; each round "
+                "was kept only when pseudo-perplexity did not worsen.\n"
+                f"Pseudo-perplexity moved {result.get('start_pseudo_perplexity')} → "
+                f"{result.get('pseudo_perplexity')}.\n\n"
+                f"Job {job['id']} ran on {created}. All values are computational predictions, "
+                "not measurements.\n")
+        return (
+            "方法\n"
+            "====\n\n"
+            f"{result.get('model') or 'ESM-2'} によるマスクド再サンプリングで配列を最適化した "
+            f"(Oritatami {__version__}): 尤度の低い位置を {s.get('fraction')} の割合でマスクし、"
+            f"温度 {s.get('temperature')} で {s.get('rounds')} ラウンドサンプリング{seed_ja}。"
+            "各ラウンドは疑似パープレキシティが悪化しない場合のみ採用した。\n"
+            f"疑似パープレキシティは {result.get('start_pseudo_perplexity')} → "
+            f"{result.get('pseudo_perplexity')} となった。\n\n"
+            f"ジョブ {job['id']}、{created} に実行。値はすべて計算による予測で、実験値ではない。\n")
+    return f"Oritatami {__version__} job {job['id']} ({kind}), ran on {created}.\n"
 
 
 def save_to_exports(data: bytes, filename: str) -> Path:

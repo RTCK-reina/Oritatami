@@ -33,12 +33,14 @@ MODES = ("chat", "mutations", "complex", "design", "explain")
 
 PROPOSAL_SCHEMA: dict[str, Any] = {
     "type": "object",
+    "additionalProperties": False,
     "properties": {
         "reply": {"type": "string"},
         "proposals": {
             "type": "array",
             "items": {
                 "type": "object",
+                "additionalProperties": False,
                 "properties": {
                     "type": {"type": "string",
                              "enum": ["mutation_set", "add_ligand", "add_protein", "add_nucleic", "new_protein"]},
@@ -470,6 +472,13 @@ def _parse_json(text: str) -> dict[str, Any]:
         return json.loads(m.group(0))
 
 
+# Small models often frame the object with a sentence or a code fence. Rather than
+# throwing the whole answer away, hand it back once and let the model re-emit it.
+_JSON_REPAIR = ("直前の出力は JSON として読めませんでした。"
+                "指定された JSON スキーマに厳密に従う JSON だけを出力し直してください。"
+                "説明文・コードフェンス・前後の文は付けないこと。")
+
+
 def _record(db: Database, **kw: Any) -> None:
     """The call log is a side effect: it must never be the reason an answer is lost."""
     try:
@@ -544,8 +553,9 @@ def ask(db: Database, *, thread_id: str | None, mode: str, message: str, workben
     context = build_context(workbench, job, scan, scan_chain)
     user_text = message.strip() if mode == "chat" else f"[{MODE_LABELS[mode]}] {goal}"
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "system", "content": context},
+    # One system message: strict templates (qwen3.5) reject any system role that is
+    # not the very first message, so prompt and context travel in one.
+    messages = [{"role": "system", "content": f"{SYSTEM_PROMPT}\n\n{context}"},
                 *_history_messages(thread),
                 {"role": "user", "content": instruction if mode != "chat" else f"{instruction}\n\n{message}"}]
     used_model = model or get_settings().llm_model
@@ -566,10 +576,23 @@ def ask(db: Database, *, thread_id: str | None, mode: str, message: str, workben
     try:
         data = _parse_json(raw)
     except json.JSONDecodeError as exc:
-        _record(db, messages=messages, raw=raw, reply="", proposals=[], reply_issues=[],
-                corrected=False, elapsed_sec=elapsed,
-                error=f"JSONDecodeError: {exc}", **logged)
-        raise llm.LlmError(f"LLM の出力を JSON として読めませんでした: {exc}\n---\n{raw[:800]}") from exc
+        # A repair retry is cheap insurance for the common small-model failure — a
+        # preamble sentence or a code fence around an otherwise valid object — and it
+        # only runs on the failure path, so good answers never pay for it.
+        try:
+            raw2 = llm.chat([*messages, {"role": "assistant", "content": raw},
+                             {"role": "user", "content": _JSON_REPAIR}],
+                            schema=PROPOSAL_SCHEMA, model=model, keep_alive=_keep_alive(origin))
+            data = _parse_json(raw2)
+            raw = raw2
+            log.info("JSON の出力し直しに成功しました")
+        except (llm.LlmError, json.JSONDecodeError):
+            _record(db, messages=messages, raw=raw, reply="", proposals=[], reply_issues=[],
+                    corrected=False, elapsed_sec=time.time() - started,
+                    error=f"JSONDecodeError: {exc}", **logged)
+            raise llm.LlmError(
+                f"LLM の出力を JSON として読めませんでした: {exc}\n---\n{raw[:800]}") from exc
+        elapsed = time.time() - started
     reply = str(data.get("reply", "")).strip()
     proposals = [verify_proposal(p, workbench, chain) for p in data.get("proposals") or [] if isinstance(p, dict)]
     reply_issues = check_reply_claims(reply, workbench)

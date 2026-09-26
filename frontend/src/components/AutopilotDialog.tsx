@@ -4,9 +4,10 @@ import { useStore } from '../store';
 import type { JobSummary, Settings } from '../types';
 import { uiEvents } from '../uiEvents';
 import { Button, Field, Icon, Modal, Spinner } from './ui';
+import { t } from '../i18n';
 
 const SEVERITY_LABEL: Record<string, string> = {
-    critical: '必須', high: '重要', medium: '参考', low: '参考',
+    critical: t('必須'), high: t('重要'), medium: t('参考'), low: t('参考'),
 };
 
 /** "K48, 63, G76" -> {48, 63, 76} */
@@ -116,8 +117,8 @@ export function AutopilotDialog({ onClose }: { onClose: () => void }) {
             setSettings(next);
             uiEvents.emit('autopilotChanged');
             toast('success', enable
-                ? `自律ループを開始しました (禁止 ${all.length} 残基)`
-                : '自律ループを止めました (実行中のジョブは最後まで走ります)');
+                ? `${t('自律ループを開始しました (禁止')} ${all.length} ${t('残基)')}`
+                : t('自律ループを止めました (実行中のジョブは最後まで走ります)'));
             onClose();
         } catch (e) {
             toast('error', errorMessage(e));
@@ -126,26 +127,26 @@ export function AutopilotDialog({ onClose }: { onClose: () => void }) {
         }
     };
 
-    if (!settings) return <Modal title="自律ループ" onClose={onClose}><Spinner /></Modal>;
+    if (!settings) return <Modal title={t('自律ループ')} onClose={onClose}><Spinner /></Modal>;
     const on = !!status?.enabled;
     const chains = targetChains;
 
     return (
-        <Modal title="自律ループ" onClose={onClose} wide className="autopilot-modal">
+        <Modal title={t('自律ループ')} onClose={onClose} wide className="autopilot-modal">
             <div className="settings ap-body">
                 <section>
-                    <h3>起点</h3>
+                    <h3>{t('起点')}</h3>
                     {candidates.length === 0 ? (
-                        <p className="small muted">完了した予測がまだありません。1 件でも予測を終えると、そこから枝分かれできます。</p>
+                        <p className="small muted">{t('完了した予測がまだありません。1 件でも予測を終えると、そこから枝分かれできます。')}</p>
                     ) : (
                         <>
                             <div className="row wrap end">
-                                <Field label="この結果から枝分かれする" hint="選んだ結果と同じ系統を伸ばします">
+                                <Field label={t('この結果から枝分かれする')} hint={t('選んだ結果と同じ系統を伸ばします')}>
                                     <select value={target?.id ?? ''} onChange={e => setTargetId(e.target.value)}>
                                         {candidates.map(j => <option key={j.id} value={j.id}>{j.title}</option>)}
                                     </select>
                                 </Field>
-                                <Field label="対象の鎖">
+                                <Field label={t('対象の鎖')}>
                                     <select value={chain} onChange={e => {
                                         setChain(e.target.value);
                                         if (target) void loadSuggestion(target.id, e.target.value);
@@ -154,15 +155,15 @@ export function AutopilotDialog({ onClose }: { onClose: () => void }) {
                                             .map(c => <option key={c} value={c}>{c}</option>)}
                                     </select>
                                 </Field>
-                                <Field label="実験名" hint="この名前のついた予測だけを起点にします。空なら全履歴">
-                                    <input type="text" placeholder="空欄で全履歴" value={settings.autopilot_experiment}
+                                <Field label={t('実験名')} hint={t('この名前のついた予測だけを起点にします。空なら全履歴')}>
+                                    <input type="text" placeholder={t('空欄で全履歴')} value={settings.autopilot_experiment}
                                         onChange={e => set('autopilot_experiment', e.target.value)} />
                                 </Field>
                             </div>
                             {status && (
                                 <p className="small muted">
-                                    いまは{on ? '動作中' : '停止中'}。自律枠 {status.used_today}/{status.daily_budget || '∞'} 件 ·
-                                    待機 {status.queued}/{status.max_queued} 件 · 空き {status.disk_free_gb} GB
+                                    {t('いまは')}{on ? t('動作中') : t('停止中')}{t('。自律枠')} {status.used_today}/{status.daily_budget || '∞'} {t('件 ·')}
+                                    {t('待機')} {status.queued}/{status.max_queued} {t('件 · 空き')} {status.disk_free_gb} GB
                                     {status.blocked_reason && <span className="warn"> — {status.blocked_reason}</span>}
                                 </p>
                             )}
@@ -171,29 +172,29 @@ export function AutopilotDialog({ onClose }: { onClose: () => void }) {
                 </section>
 
                 <section>
-                    <h3>進め方</h3>
+                    <h3>{t('進め方')}</h3>
                     <div className="row wrap end">
-                        <Field label="探索の方針">
+                        <Field label={t('探索の方針')}>
                             <select value={settings.autopilot_strategy} onChange={e => set('autopilot_strategy', e.target.value)}>
-                                <option value="climb">山登り (常に最良から枝分かれ)</option>
-                                <option value="walk">酔歩 (最新からそのまま続ける)</option>
+                                <option value="climb">{t('山登り (常に最良から枝分かれ)')}</option>
+                                <option value="walk">{t('酔歩 (最新からそのまま続ける)')}</option>
                             </select>
                         </Field>
-                        <Field label="候補の選び方">
+                        <Field label={t('候補の選び方')}>
                             <select value={settings.autopilot_selection} onChange={e => set('autopilot_selection', e.target.value)}>
-                                <option value="greedy">良さそうな順</option>
-                                <option value="explore">試していない位置を優先</option>
+                                <option value="greedy">{t('良さそうな順')}</option>
+                                <option value="explore">{t('試していない位置を優先')}</option>
                             </select>
                         </Field>
-                        <Field label="1回の枝分かれ数" hint="世代無制限なら 1">
+                        <Field label={t('1回の枝分かれ数')} hint={t('世代無制限なら 1')}>
                             <input type="number" min={0} max={10} value={settings.autopilot_max_variants_per_job}
                                 onChange={e => set('autopilot_max_variants_per_job', Number(e.target.value))} />
                         </Field>
-                        <Field label="世代の上限" hint="0 で無制限">
+                        <Field label={t('世代の上限')} hint={t('0 で無制限')}>
                             <input type="number" min={0} max={100} value={settings.autopilot_max_depth}
                                 onChange={e => set('autopilot_max_depth', Number(e.target.value))} />
                         </Field>
-                        <Field label="24時間の上限" hint="0 で無制限">
+                        <Field label={t('24時間の上限')} hint={t('0 で無制限')}>
                             <input type="number" min={0} max={2000} value={settings.autopilot_daily_budget}
                                 onChange={e => set('autopilot_daily_budget', Number(e.target.value))} />
                         </Field>
@@ -201,34 +202,34 @@ export function AutopilotDialog({ onClose }: { onClose: () => void }) {
                 </section>
 
                 <section>
-                    <h3>変更を禁止する残基</h3>
+                    <h3>{t('変更を禁止する残基')}</h3>
                     <p className="small muted">
-                        スコアだけを見る探索は、機能を担う残基を潰すのが一番の近道になります。
-                        この分子について分かっていること (データベースの注釈・界面・起点で乱れていた部分・ESM-2 の保存度) から
-                        候補を出しました。チェックの付いたものが禁止リストに入ります。
+                        {t('スコアだけを見る探索は、機能を担う残基を潰すのが一番の近道になります。')}
+                        {t('この分子について分かっていること (データベースの注釈・界面・起点で乱れていた部分・ESM-2 の保存度) から')}
+                        {t('候補を出しました。チェックの付いたものが禁止リストに入ります。')}
                     </p>
                     {loadingSuggestion ? <Spinner /> : !suggestion ? (
-                        <p className="small muted">起点を選ぶと候補を出します。</p>
+                        <p className="small muted">{t('起点を選ぶと候補を出します。')}</p>
                     ) : (
                         <>
                             <div className="kv small">
-                                <span>鎖 {suggestion.chain} · {suggestion.length} 残基</span>
-                                <span>注釈 {suggestion.sources.uniprot ?? 'なし'}</span>
-                                <span>界面 {suggestion.sources.interface_residues}</span>
-                                <span>乱れ {suggestion.sources.disordered_residues}</span>
-                                <span>保存 {suggestion.sources.conserved_residues}</span>
+                                <span>{t('鎖')} {suggestion.chain} · {suggestion.length} {t('残基')}</span>
+                                <span>{t('注釈')} {suggestion.sources.uniprot ?? t('なし')}</span>
+                                <span>{t('界面')} {suggestion.sources.interface_residues}</span>
+                                <span>{t('乱れ')} {suggestion.sources.disordered_residues}</span>
+                                <span>{t('保存')} {suggestion.sources.conserved_residues}</span>
                             </div>
                             {suggestion.notes.map(n => <p key={n} className="small warn">{n}</p>)}
                             <div className="row wrap">
-                                <Button size="sm" onClick={() => setTicked(new Set(suggestion.positions.filter(p => p.default_on).map(p => p.position)))}>推奨に戻す</Button>
-                                <Button size="sm" onClick={() => setTicked(new Set(suggestion.positions.map(p => p.position)))}>すべて選ぶ</Button>
-                                <Button size="sm" onClick={() => setTicked(new Set())}>すべて外す</Button>
+                                <Button size="sm" onClick={() => setTicked(new Set(suggestion.positions.filter(p => p.default_on).map(p => p.position)))}>{t('推奨に戻す')}</Button>
+                                <Button size="sm" onClick={() => setTicked(new Set(suggestion.positions.map(p => p.position)))}>{t('すべて選ぶ')}</Button>
+                                <Button size="sm" onClick={() => setTicked(new Set())}>{t('すべて外す')}</Button>
                                 <span className="spacer" />
-                                <span className="small muted">{all.length} 残基を禁止</span>
+                                <span className="small muted">{all.length} {t('残基を禁止')}</span>
                             </div>
                             <div className="ap-list">
                                 {suggestion.positions.length === 0 && (
-                                    <p className="small muted">候補は見つかりませんでした。手入力の欄で指定できます。</p>
+                                    <p className="small muted">{t('候補は見つかりませんでした。手入力の欄で指定できます。')}</p>
                                 )}
                                 {suggestion.positions.map(p => (
                                     <label key={p.position} className={`ap-row sev-${p.severity}`}>
@@ -246,13 +247,13 @@ export function AutopilotDialog({ onClose }: { onClose: () => void }) {
                             </div>
                         </>
                     )}
-                    <Field label="手入力で足す" hint="番号でも K63 のような表記でもかまいません。カンマ区切り">
-                        <input type="text" placeholder="例: K48, K63"
+                    <Field label={t('手入力で足す')} hint={t('番号でも K63 のような表記でもかまいません。カンマ区切り')}>
+                        <input type="text" placeholder={t('例: K48, K63')}
                             defaultValue={[...manual].sort((a, b) => a - b).join(', ')}
                             onChange={e => setManual(parsePositions(e.target.value))} />
                     </Field>
                     <p className="small muted">
-                        実際に保存されるリスト: <span className="mono">{listText || '(なし)'}</span>
+                        {t('実際に保存されるリスト:')} <span className="mono">{listText || t('(なし)')}</span>
                     </p>
                 </section>
             </div>
@@ -260,21 +261,21 @@ export function AutopilotDialog({ onClose }: { onClose: () => void }) {
             <div className="settings-foot">
                 {on ? (
                     <Button variant="danger" disabled={saving} onClick={() => void start(false)}>
-                        {saving ? <Spinner size={12} /> : '自律を止める'}
+                        {saving ? <Spinner size={12} /> : t('自律を止める')}
                     </Button>
                 ) : (
                     <Button variant="primary" disabled={saving || candidates.length === 0} onClick={() => void start(true)}>
-                        {saving ? <Spinner size={12} /> : <><Icon name="play" size={13} /> この設定で自律を開始</>}
+                        {saving ? <Spinner size={12} /> : <><Icon name="play" size={13} /> {t('この設定で自律を開始')}</>}
                     </Button>
                 )}
                 {on && (
                     <Button disabled={saving} onClick={() => void start(true)}>
-                        {saving ? <Spinner size={12} /> : '設定だけ更新する'}
+                        {saving ? <Spinner size={12} /> : t('設定だけ更新する')}
                     </Button>
                 )}
-                <Button variant="ghost" onClick={onClose}>閉じる</Button>
+                <Button variant="ghost" onClick={onClose}>{t('閉じる')}</Button>
                 <span className="spacer" />
-                <span className="small muted">止めると新規投入だけが止まり、実行中のジョブは最後まで走ります</span>
+                <span className="small muted">{t('止めると新規投入だけが止まり、実行中のジョブは最後まで走ります')}</span>
             </div>
         </Modal>
     );

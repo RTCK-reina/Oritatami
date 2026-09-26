@@ -302,26 +302,33 @@ def test_context_and_output_caps_are_set_together():
         "an output cap below the window is what bounds a runaway generation")
 
 
-def test_chat_payload_carries_both_caps(monkeypatch):
+def test_chat_payload_and_spawn_carry_both_caps(monkeypatch):
+    """The window moved to spawn args (--ctx-size); the output cap is a request field."""
     from oritatami import llm
     seen = {}
+    spawns = []
 
-    def fake_post(payload, timeout):
+    def fake_post(payload, timeout, client=None):
         seen.update(payload)
         return '{"reply":"ok","proposals":[]}'
 
     monkeypatch.setattr(llm, "_post_chat", fake_post)
+    monkeypatch.setattr(llm, "_ensure_running",
+                        lambda name, est_tokens=0.0: spawns.append(llm._needed_ctx(name, est_tokens)))
+    monkeypatch.setattr(llm, "model_info", lambda name: {})
     llm.chat([{"role": "user", "content": "hi"}])
-    assert seen["options"]["num_ctx"] == llm.NUM_CTX
-    assert seen["options"]["num_predict"] == llm.NUM_PREDICT
+    assert seen["max_tokens"] == llm.NUM_PREDICT
+    assert spawns == [llm.NUM_CTX], "小さいプロンプトでは既定の窓で起動する"
 
 
 def test_oversized_prompt_is_warned_about(monkeypatch, caplog):
-    """Overflow drops the oldest tokens silently, so the only signal is this warning."""
+    """A prompt near the window is about to force a respawn or fail — the only signal."""
     import logging
 
     from oritatami import llm
-    monkeypatch.setattr(llm, "_post_chat", lambda payload, timeout: "ok")
+    monkeypatch.setattr(llm, "_post_chat", lambda payload, timeout, client=None: "ok")
+    monkeypatch.setattr(llm, "_ensure_running", lambda *a, **k: None)
+    monkeypatch.setattr(llm, "model_info", lambda name: {})
     huge = "あ" * int(llm.NUM_CTX * llm._CHARS_PER_TOKEN * 0.9)
     with caplog.at_level(logging.WARNING, logger="oritatami.llm"):
         llm.chat([{"role": "user", "content": huge}])
@@ -347,9 +354,12 @@ def test_truncated_reply_is_its_own_error(monkeypatch):
 
         @staticmethod
         def json():
-            return {"done_reason": "length", "message": {"content": '{"reply": "切れ'}}
+            return {"choices": [{"finish_reason": "length",
+                                 "message": {"content": '{"reply": "切れ'}}]}
 
-    monkeypatch.setattr(httpx, "post", lambda *a, **k: R())
+    monkeypatch.setattr(httpx.Client, "post", lambda *a, **k: R())
+    monkeypatch.setattr(llm, "_ensure_running", lambda *a, **k: None)
+    monkeypatch.setattr(llm, "model_info", lambda name: {})
     with pytest.raises(llm.TruncatedError):
         llm.chat([{"role": "user", "content": "hi"}])
 
@@ -404,7 +414,7 @@ def test_analyze_falls_back_to_spec_components(db, monkeypatch):
         return {'thread_id': 't', 'reply': '', 'proposals': [], 'elapsed_sec': 0.1}
 
     monkeypatch.setattr(autopilot.assistant, "ask", fake_ask)
-    monkeypatch.setattr(autopilot.llm, "server_up", lambda: True)
+    monkeypatch.setattr(autopilot.llm, "ensure_server", lambda **kw: {"running": True})
     monkeypatch.setattr(autopilot, "_chain_scan", lambda *a, **k: None)
     job = {"id": "job_ui", "title": "ユビキチン", "parent_id": None,
            "spec": {"name": "ユビキチン", "components": [
@@ -692,7 +702,7 @@ def test_explain_can_be_switched_off(db, tmp_path, monkeypatch):
                 "reply_issues": [], "elapsed_sec": 0.1}
 
     monkeypatch.setattr(autopilot, "jobs_dir", lambda: tmp_path)
-    monkeypatch.setattr(autopilot.llm, "server_up", lambda: True)
+    monkeypatch.setattr(autopilot.llm, "ensure_server", lambda **kw: {"running": True})
     monkeypatch.setattr(autopilot.assistant, "ask", fake_ask)
     monkeypatch.setattr(autopilot, "_chain_scan", lambda *a, **k: None)
     config.update_settings({"autopilot_protected_residues": "", "autopilot_protect_disordered": False,
@@ -732,7 +742,7 @@ def test_an_unsatisfiable_mask_does_not_loop_forever(db, tmp_path, monkeypatch):
                 "reply_issues": [], "elapsed_sec": 0.1}
 
     monkeypatch.setattr(autopilot, "jobs_dir", lambda: tmp_path)
-    monkeypatch.setattr(autopilot.llm, "server_up", lambda: True)
+    monkeypatch.setattr(autopilot.llm, "ensure_server", lambda **kw: {"running": True})
     monkeypatch.setattr(autopilot.assistant, "ask", fake_ask)
     monkeypatch.setattr(autopilot, "_chain_scan", lambda *a, **k: None)
     config.update_settings({"autopilot_protected_residues": "G76", "autopilot_explain": False,
@@ -813,36 +823,35 @@ def test_the_experiment_tag_is_stamped_on_every_variant(tmp_path, monkeypatch):
     assert "autopilot_experiment" not in cands[0]["spec"], "実験名が空なら札を外すこと"
 
 
-def test_the_suite_never_waits_on_a_live_ollama(db, tmp_path, monkeypatch):
-    """_analyze blocks up to 180 s waiting for Ollama. Two tests called it without
-    patching server_up, so on a machine where Ollama is not running the suite sat there
-    for six minutes looking hung. This pins the skip path, which nothing covered."""
+def test_the_suite_never_waits_on_a_live_server(db, tmp_path, monkeypatch):
+    """_analyze calls ensure_server, which used to be a daemon wait. A test that forgot
+    the patch would spawn a real llama-server (or block on a pull); pin the skip path."""
     monkeypatch.setattr(autopilot, "jobs_dir", lambda: tmp_path)
-    monkeypatch.setattr(autopilot, "_OLLAMA_WAIT", 0.0)
-    monkeypatch.setattr(autopilot.llm, "server_up", lambda: False)
+    monkeypatch.setattr(autopilot.llm, "ensure_server",
+                        lambda **kw: {"running": False, "error": "なし"})
     called = []
     monkeypatch.setattr(autopilot.assistant, "ask", lambda *a, **k: called.append(1))
 
     job = _succeed_protein(db, "元", _result({"A": [90.0]}))
     started = time.time()
     autopilot._analyze(job, db, type("J", (), {"touch": lambda s: None})())
-    assert time.time() - started < 5.0, "Ollama 不在でブロックしないこと"
-    assert called == [], "Ollama が無いなら問い合わせないこと"
+    assert time.time() - started < 5.0, "LLM 不在でブロックしないこと"
+    assert called == [], "LLM が無いなら問い合わせないこと"
     assert not (tmp_path / job["id"] / "autopilot.json").exists(), "解析結果を書かないこと"
 
 
-def test_every_analyze_call_in_this_file_patches_server_up():
-    """A new test that forgets the patch reintroduces the six-minute hang silently."""
+def test_every_analyze_call_in_this_file_patches_ensure_server():
+    """A new test that forgets the patch reintroduces a real server spawn silently."""
     import pathlib
     import re
 
     src = pathlib.Path(__file__).read_text("utf-8")
     bodies = re.split(r"\ndef (test_\w+)", src)
     for name, body in zip(bodies[1::2], bodies[2::2], strict=False):
-        if "_analyze(" not in body or name == "test_every_analyze_call_in_this_file_patches_server_up":
+        if "_analyze(" not in body or name == "test_every_analyze_call_in_this_file_patches_ensure_server":
             continue
-        assert 'server_up' in body or '_OLLAMA_WAIT' in body, \
-            f"{name} が llm.server_up を差し替えていない — Ollama 不在で 180 秒止まる"
+        assert 'ensure_server' in body, \
+            f"{name} が llm.ensure_server を差し替えていない — 実サーバーが起きる"
 
 
 def test_interface_residues_are_protected_in_a_complex(db, monkeypatch):

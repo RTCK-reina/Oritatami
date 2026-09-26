@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react';
+import { t } from '../i18n';
 import { AA_INFO, GROUP_COLOR, llrColor, plddtColor } from '../workbench';
 
 export type StripColor = 'group' | 'plddt' | 'tolerance' | 'none';
@@ -59,7 +60,7 @@ export const SequenceStrip = memo(function SequenceStrip(props: Props) {
                                 selected === pos ? 'sel' : '',
                                 pos % 10 === 0 ? 'tick' : '',
                             ].join(' ');
-                            const title = `${ch}${pos} ${AA_INFO[ch]?.name ?? ''}${props.plddt?.[i] !== undefined ? ` pLDDT ${props.plddt[i].toFixed(0)}` : ''}${props.tolerance?.[i] !== undefined ? ` 許容度 ${props.tolerance[i].toFixed(2)}` : ''}`;
+                            const title = `${ch}${pos} ${AA_INFO[ch]?.name ?? ''}${props.plddt?.[i] !== undefined ? ` pLDDT ${props.plddt[i].toFixed(0)}` : ''}${props.tolerance?.[i] !== undefined ? ` ${t('許容度')} ${props.tolerance[i].toFixed(2)}` : ''}`;
                             return (
                                 <span key={i} className={cls} title={title}
                                     style={bg ? { background: bg, color: '#0b0f14' } : undefined}
